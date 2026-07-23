@@ -14,7 +14,7 @@ try:
     HAS_SEABORN = True
 except ImportError:
     HAS_SEABORN = False
-
+ 
 re = _re  # prevent sympy from shadowing the re module
 plt.style.use("dark_background")
 
