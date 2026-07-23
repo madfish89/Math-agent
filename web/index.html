@@ -37,7 +37,7 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
 .conf-fill{height:100%;border-radius:4px;transition:width .5s}
 .conf-fill.h{background:var(--green)}.conf-fill.m{background:var(--warn)}.conf-fill.l{background:var(--err)}
 .conf-lb{font-size:14px;font-weight:600;min-width:120px;text-align:right}
-.graph-container{margin:16px 0;border:1px solid var(--border);border-radius:var(--radius);overflow:hidden}
+.graph-container{margin:16px 0;border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;height:400px;width:100%}
 .input-bar{padding:16px 32px 20px;background:var(--surface);border-top:1px solid var(--border)}
 .input-ctn{max-width:700px;margin:0 auto;display:flex;gap:10px;align-items:flex-end}
 .input-ctn textarea{flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);color:var(--text);padding:12px 16px;font-size:14px;font-family:inherit;resize:none;min-height:48px;max-height:120px;transition:.2s}
@@ -75,7 +75,7 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
 </div></div>
 </div>
 <script>
-const API_KEY = "";  // set at runtime, never commit  // set at runtime, never commit
+const API_KEY = "";  // set at runtime, never commit  // set at runtime, never commit  // set at runtime, never commit
 const MODEL = "gpt-4o-mini";
 let busy = false, pyReady = false;
 
@@ -140,8 +140,9 @@ async function send() {
   document.getElementById("chat").appendChild(a);
 
   const ld = document.createElement("div"); ld.className = "loading";
-  ld.innerHTML = '<div class="sp"></div>Solving...'; bubble.appendChild(ld);
+  ld.innerHTML = '<div class="sp"></div>Asking GPT-4o-mini...'; bubble.appendChild(ld);
 
+  let sol;
   try {
     // 1. Always use the LLM (GPT-4o-mini) to solve
     sol = await llmSolve(problem);
@@ -187,7 +188,8 @@ function render(sol, bubble) {
       xaxis: {title: "x", range: sol.graph_data.x_range || [-10,10]},
       yaxis: {title: "y"},
       paper_bgcolor: "transparent", plot_bgcolor: "#161b22",
-      font: {color: "#e6edf3"}, margin: {l:50,r:20,t:40,b:40}
+      font: {color: "#e6edf3"}, margin: {l:50,r:20,t:40,b:40},
+      height: 400, autosize: true
     }, {responsive: true, displayModeBar: false});
   }
 }
