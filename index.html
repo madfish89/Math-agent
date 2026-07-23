@@ -248,7 +248,17 @@ C_GRID = "#30363d"
 # ──────────────────────────────────────────────
 
 def norm(s):
-    s = s.strip().replace("^", "**")
+    s = s.strip()
+    # Convert Unicode superscripts to **N: ³ → **3, ² → **2, ¹ → **1
+    sup_map = {"⁰":"**0","¹":"**1","²":"**2","³":"**3","⁴":"**4","⁵":"**5","⁶":"**6","⁷":"**7","⁸":"**8","⁹":"**9"}
+    for k, v in sup_map.items():
+        s = s.replace(k, v)
+    # Convert Unicode minus to ASCII hyphen
+    s = s.replace("\\u2212", "-").replace("\\u2013", "-").replace("\\u2014", "-")
+    # Convert ^ to **
+    s = s.replace("^", "**")
+    # Strip "y =" prefix if present
+    s = re.sub(r"^y\\s*=\\s*", "", s)
     FUNCS = ["sin","cos","tan","exp","log","sqrt","abs","ln","sec","csc","cot",
              "asin","acos","atan","sinh","cosh","tanh","erf","gamma"]
     c0, c1 = chr(0), chr(1)
@@ -402,13 +412,13 @@ def present_graph(problem):
     if m:
         return _multi(m.group(1).strip(), m.group(2).strip(), int(m.group(3)), int(m.group(4)))
 
-    # Single graph with range
-    m = re.search(r"graph\\s+y\\s*=\\s*(.+?)\\s+from\\s+(-?[0-9]+)\\s+to\\s+(-?[0-9]+)", p)
+    # Single graph with range (handle optional colon: "graph: y = ..." or "graph y = ...")
+    m = re.search(r"graph\\s*:?\\s*y\\s*=\\s*(.+?)\\s+from\\s+(-?[0-9]+)\\s+to\\s+(-?[0-9]+)", p)
     if m:
         return _line(m.group(1).strip(), int(m.group(2)), int(m.group(3)))
 
-    # Single graph no range
-    m = re.search(r"graph\\s+y\\s*=\\s*(.+)", p)
+    # Single graph no range — default to -10..10
+    m = re.search(r"graph\\s*:?\\s*y\\s*=\\s*(.+?)\\s*$", p)
     if m:
         return _line(m.group(1).strip(), -10, 10)
 
