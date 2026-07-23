@@ -968,7 +968,15 @@ async function initPy() {
   await py.loadPackage("sympy");
   await py.loadPackage("numpy");
   await py.loadPackage("matplotlib");
-  py.FS.writeFile("skills.py", SKILLS_PY);
+  // Use embedded skills, but if it's outdated, fetch the latest from GitHub raw
+  let skillsCode = SKILLS_PY;
+  if (!skillsCode.includes("sup_map")) {
+    try {
+      const res = await fetch("https://raw.githubusercontent.com/madfish89/Math-agent/main/skills.py");
+      if (res.ok) skillsCode = await res.text();
+    } catch(e) { console.warn("Could not fetch updated skills.py, using embedded version"); }
+  }
+  py.FS.writeFile("skills.py", skillsCode);
   pyReady = true;
   document.getElementById("pyLoading").classList.remove("show");
 }
