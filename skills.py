@@ -32,7 +32,9 @@ def norm(s):
     for k, v in sup_map.items():
         s = s.replace(k, v)
     # Convert Unicode minus to ASCII hyphen
-    s = s.replace("\u2212", "-").replace("\u2013", "-").replace("\u2014", "-")
+    # Use chr() not \uXXXX escapes — this file gets embedded in a JS template literal
+    # where backslashes get doubled, breaking \uXXXX escapes.
+    s = s.replace(chr(0x2212), "-").replace(chr(0x2013), "-").replace(chr(0x2014), "-")
     # Convert ^ to **
     s = s.replace("^", "**")
     # Strip "y =" prefix if present
@@ -387,7 +389,7 @@ def memory_format(problem, answer, confidence):
 def double_check(problem, llm_answer):
     code = generate_code(problem)
     if not code:
-        return {"verified": False, "reason": "No code"}
+        return {"verified": None, "reason": "Python cannot verify this problem type"}
     try:
         local = {}
         exec(code, local)
@@ -402,11 +404,16 @@ def _match(a, b):
     nums_a = re.findall(r"-?[0-9]+\.?[0-9]*", str(a))
     nums_b = re.findall(r"-?[0-9]+\.?[0-9]*", str(b))
     if not nums_a or not nums_b:
-        return str(a).strip() == str(b).strip()
+        return None
+    if len(nums_a) != len(nums_b):
+        return False
     try:
-        return abs(float(nums_a[0]) - float(nums_b[0])) < 0.01
+        for na, nb in zip(nums_a, nums_b):
+            if abs(float(na) - float(nb)) >= 0.01:
+                return False
+        return True
     except:
-        return str(a).strip() == str(b).strip()
+        return False
 
 
 # ──────────────────────────────────────────────

@@ -78,6 +78,7 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
 .verify-badge{display:inline-block;font-size:12px;padding:4px 10px;border-radius:6px;margin-top:8px;font-weight:600}
 .verify-badge.ok{background:rgba(63,185,80,.15);color:var(--green)}
 .verify-badge.no{background:rgba(248,81,73,.15);color:var(--err)}
+.verify-badge.warn{background:rgba(210,153,34,.15);color:var(--warn)}
 .input-bar{padding:16px 32px 20px;background:var(--surface);border-top:1px solid var(--border)}
 .input-ctn{max-width:700px;margin:0 auto;display:flex;gap:10px;align-items:center}
 .input-ctn textarea{flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);color:var(--text);padding:12px 16px;font-size:14px;font-family:inherit;resize:none;min-height:48px;max-height:120px;transition:.2s}
@@ -254,7 +255,9 @@ def norm(s):
     for k, v in sup_map.items():
         s = s.replace(k, v)
     # Convert Unicode minus to ASCII hyphen
-    s = s.replace("\\u2212", "-").replace("\\u2013", "-").replace("\\u2014", "-")
+    # Use chr() not \\uXXXX escapes — this file gets embedded in a JS template literal
+    # where backslashes get doubled, breaking \\uXXXX escapes.
+    s = s.replace(chr(0x2212), "-").replace(chr(0x2013), "-").replace(chr(0x2014), "-")
     # Convert ^ to **
     s = s.replace("^", "**")
     # Strip "y =" prefix if present
@@ -609,7 +612,7 @@ def memory_format(problem, answer, confidence):
 def double_check(problem, llm_answer):
     code = generate_code(problem)
     if not code:
-        return {"verified": False, "reason": "No code"}
+        return {"verified": None, "reason": "Python cannot verify this problem type"}
     try:
         local = {}
         exec(code, local)
@@ -624,11 +627,16 @@ def _match(a, b):
     nums_a = re.findall(r"-?[0-9]+\\.?[0-9]*", str(a))
     nums_b = re.findall(r"-?[0-9]+\\.?[0-9]*", str(b))
     if not nums_a or not nums_b:
-        return str(a).strip() == str(b).strip()
+        return None
+    if len(nums_a) != len(nums_b):
+        return False
     try:
-        return abs(float(nums_a[0]) - float(nums_b[0])) < 0.01
+        for na, nb in zip(nums_a, nums_b):
+            if abs(float(na) - float(nb)) >= 0.01:
+                return False
+        return True
     except:
-        return str(a).strip() == str(b).strip()
+        return False
 
 
 # ──────────────────────────────────────────────
@@ -888,17 +896,25 @@ async function send() {
 
   try {
     setLoadingStep(ld, 0);
+    /* Kick off Python graph generation in parallel with the LLM solve */
+    const graphKeywords = ['graph', 'histogram', 'scatter', 'contour', '3d', 'surface', 'plot'];
+    const needsGraph = graphKeywords.some(kw => problem.toLowerCase().includes(kw));
+    const pyPromise = callPython(problem);
     const sol = multiAgent ? await multiAgentSolve(problem) : await llmSolve(problem);
     setLoadingStep(ld, 1);
-    const pyResult = await callPython(problem);
+    /* Always await the Python graph result (even if LLM answer arrived first) */
+    const pyResult = await pyPromise;
     if (pyResult && pyResult.graph_image) { sol.graph_image = pyResult.graph_image; sol.graph_title = pyResult.graph_title; }
+    else if (needsGraph && !(pyResult && pyResult.graph_image)) {
+      sol.graph_error = true;
+    }
     if (sol.answer) {
       setLoadingStep(ld, 2);
       try {
         const checkRaw = await py.runPythonAsync(`import skills, json; json.dumps(skills.double_check(${JSON.stringify(problem)}, ${JSON.stringify(sol.answer)}))`);
         const check = JSON.parse(checkRaw);
         sol.verified = check.verified; sol.python_answer = check.python_answer;
-      } catch(e) {}
+      } catch(e) { sol.verified = null; }
     }
     if (sol.steps && sol.steps.length > 0 && sol.steps[0].proof) {
       const theorem = sol.steps[0].proof.split(":")[0].split("—")[0].trim();
@@ -915,7 +931,9 @@ async function send() {
 
 function render(sol, bubble) {
   if (sol.answer) { const a = document.createElement("div"); a.className = "ans-box"; a.innerHTML = `<div class="lb">Answer</div><div class="vl">${esc(sol.answer)}</div>`; bubble.appendChild(a); }
-  if (sol.verified !== undefined) { const v = document.createElement("div"); v.className = "verify-badge " + (sol.verified ? "ok" : "no"); v.textContent = sol.verified ? "✓ Double-checked with Python" : "⚠ Python got a different answer"; if (sol.python_answer) v.textContent += ` (Python: ${esc(sol.python_answer)})`; bubble.appendChild(v); }
+  if (sol.verified === true) { const v = document.createElement("div"); v.className = "verify-badge ok"; v.textContent = "✓ Double-checked with Python"; bubble.appendChild(v); }
+  else if (sol.verified === false) { const v = document.createElement("div"); v.className = "verify-badge no"; v.textContent = "⚠ Python got a different answer"; if (sol.python_answer) v.textContent += ` (Python: ${esc(sol.python_answer)})`; bubble.appendChild(v); }
+  else if (sol.verified === null || sol.verified === undefined) { const v = document.createElement("div"); v.className = "verify-badge warn"; v.textContent = "Python could not verify this problem type"; bubble.appendChild(v); }
   if (sol.steps && sol.steps.length) { const t = document.createElement("div"); t.className = "steps-title"; t.textContent = "Steps"; bubble.appendChild(t); sol.steps.forEach((s, i) => {
     const e = document.createElement("div"); e.className = "step-it";
     let inner = `<div class="sn">Step ${i+1}</div><div class="sc">${esc(s.step||"")}</div>`;
@@ -933,6 +951,7 @@ function render(sol, bubble) {
   b.innerHTML = `<span style="font-size:13px;color:var(--dim)">Confidence</span><div class="conf-trk"><div class="conf-fill ${cls}" style="width:${pct}%"></div></div><span class="conf-lb">${pct}% — ${lb}</span>`;
   bubble.appendChild(b);
   if (sol.graph_image) { const g = document.createElement("div"); g.className = "graph-container"; g.innerHTML = `<img src="${sol.graph_image}" alt="${sol.graph_title || 'Graph'}">`; bubble.appendChild(g); }
+  if (sol.graph_error) { const g = document.createElement("div"); g.className = "graph-container"; g.style.padding = "16px"; g.style.textAlign = "center"; g.style.color = "var(--warn)"; g.textContent = "Could not generate graph — try simplifying the expression"; bubble.appendChild(g); }
   if (sol.source) { const s = document.createElement("div"); s.className = "src-card"; s.innerHTML = `<div class="sn">Wikipedia</div><div style="font-size:14px;margin-top:4px">${esc(sol.source.title)}</div><div style="font-size:13px;color:var(--dim);margin-top:4px">${esc(sol.source.extract)}...</div><a href="${sol.source.url}" target="_blank">🔗 ${esc(sol.source.url)}</a>`; bubble.appendChild(s); }
 }
 </script>
