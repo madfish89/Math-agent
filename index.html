@@ -18,7 +18,6 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
 .key-input{width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);padding:10px 12px;font-size:13px;font-family:'SF Mono',monospace;transition:.2s}
 .key-input:focus{outline:none;border-color:var(--accent)}
 .key-warn{font-size:11px;color:var(--warn);margin-top:8px}
-/* Toggle */
 .toggle-btn{display:flex;align-items:center;gap:10px;padding:12px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);cursor:pointer;transition:.2s;color:var(--dim);font-size:13px;text-align:left;width:100%}
 .toggle-btn:hover{border-color:var(--purple);color:var(--text)}
 .toggle-btn.active{background:rgba(188,140,255,.1);border-color:var(--purple);color:var(--purple)}
@@ -27,7 +26,6 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
 .toggle-btn.active .ck{opacity:1}
 /* MAIN */
 .main{flex:1;display:flex;flex-direction:column;overflow:hidden}
-/* HEADER */
 .hdr{padding:20px 32px;border-bottom:1px solid var(--border);background:var(--surface)}
 .hdr h1{font-size:20px;font-weight:700;margin-bottom:6px}
 .hdr p{font-size:13px;color:var(--dim);line-height:1.6}
@@ -58,6 +56,14 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
 .ag-rsp{background:var(--surface2);border-radius:8px;padding:12px 14px;margin-bottom:8px;border-left:3px solid var(--purple)}
 .ag-rsp .an{font-size:12px;font-weight:600;color:var(--purple)}
 .ag-rsp .aa{font-size:14px;margin-top:4px}
+.src-card{background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:12px 14px;margin-top:8px}
+.src-card .sn{font-size:12px;font-weight:600;color:var(--accent)}
+.src-card a{color:var(--accent);text-decoration:none;font-size:13px;display:inline-block;margin-top:4px}
+.src-card a:hover{text-decoration:underline}
+.verify-badge{display:inline-block;font-size:12px;padding:4px 10px;border-radius:6px;margin-top:8px;font-weight:600}
+.verify-badge.ok{background:rgba(63,185,80,.15);color:var(--green)}
+.verify-badge.no{background:rgba(248,81,73,.15);color:var(--err)}
+.verify-badge.maybe{background:rgba(210,153,34,.15);color:var(--warn)}
 /* INPUT */
 .input-bar{padding:16px 32px 20px;background:var(--surface);border-top:1px solid var(--border)}
 .input-ctn{max-width:700px;margin:0 auto;display:flex;gap:10px;align-items:center}
@@ -84,7 +90,7 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
 <div class="sidebar">
 <div class="sb-section">
 <h3>API Key</h3>
-<input class="key-input" id="apiKey" type="password" placeholder="Paste your OpenAI API key..." value="">
+<input class="key-input" id="apiKey" type="password" placeholder="Paste your OpenAI API key...">
 <div class="key-warn">⚠️ Stored in your browser only. Never sent anywhere except OpenAI.</div>
 </div>
 <div class="sb-section">
@@ -100,8 +106,9 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
 <div style="font-size:13px;color:var(--dim);line-height:1.7">
 <p><b style="color:var(--text)">1.</b> Type any math problem.</p>
 <p><b style="color:var(--text)">2.</b> GPT-4o-mini solves it with step-by-step reasoning and proofs.</p>
-<p><b style="color:var(--text)">3.</b> Python (running in your browser via Pyodide) generates graphs when needed.</p>
-<p><b style="color:var(--text)">4.</b> You see the answer, steps, confidence score, and graph — nothing else.</p>
+<p><b style="color:var(--text)">3.</b> Python (running in your browser via Pyodide + sympy) generates graphs, histograms, and scatter plots when needed.</p>
+<p><b style="color:var(--text)">4.</b> Every answer is double-checked by re-deriving it with Python.</p>
+<p><b style="color:var(--text)">5.</b> You see the answer, steps, confidence score, and graph — nothing else.</p>
 <p style="margin-top:10px"><b style="color:var(--purple)">Multi-Agent mode:</b> Three agents with different math expertise solve the problem independently, then a synthesis agent combines their answers into one verified solution.</p>
 </div>
 </div>
@@ -110,7 +117,7 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
 <div class="main">
 <div class="hdr">
 <h1>🧮 Math AI Agent</h1>
-<p>A math-solving AI that uses GPT-4o-mini to break down problems step by step with proofs and theorem citations for each step. It runs Python in your browser (via Pyodide + sympy) to generate graphs when you ask for them. Every solution includes a confidence score. Toggle multi-agent mode to have three specialized AI agents solve independently and cross-check each other. Paste your OpenAI API key in the sidebar to begin.</p>
+<p>A math-solving AI that uses GPT-4o-mini to break down problems step by step with proofs and theorem citations for each step. It runs Python in your browser (via Pyodide + sympy) to generate graphs, histograms, and scatter plots when you ask for them. Every solution is double-checked by re-deriving the answer with Python independently. Toggle multi-agent mode to have three specialized AI agents solve independently and cross-check each other. Paste your OpenAI API key in the sidebar to begin.</p>
 </div>
 <div class="chat" id="chat">
 <div class="empty" id="empty">Type a math problem below to get started.</div>
@@ -118,89 +125,102 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
 <div class="input-bar">
 <div class="input-ctn">
 <textarea id="input" placeholder="Type a math problem..." rows="1"></textarea>
-<div class="multi-toggle" id="multiBtn" onclick="toggleMulti()">
-<span class="dot"></span> 👥
-</div>
+<div class="multi-toggle" id="multiBtn" onclick="toggleMulti()"><span class="dot"></span> 👥</div>
 <button class="send-btn" id="btn" onclick="send()">➤ Solve</button>
 </div>
 </div>
 </div>
 </div>
 <script>
+// ─── Config ───
 const MODEL = "gpt-4o-mini";
 let busy = false, pyReady = false, multiAgent = false;
 
+// ─── Pyodide (Python in browser) ───
 async function initPy() {
   if (pyReady) return;
   py = await loadPyodide();
   await py.loadPackage("sympy");
   await py.loadPackage("numpy");
+  // Load skills.py into Pyodide
+  const res = await fetch("/skills.py");
+  py.FS.writeFile("skills.py", await res.text());
   pyReady = true;
 }
 
-async function pyGraph(problem) {
+// ─── Call Python skills ───
+async function callPython(problem) {
   await initPy();
   try {
-    if (!py._filesLoaded) {
-      const sRes = await fetch('/skills.py'); py.FS.writeFile('skills.py', await sRes.text());
-      const mRes = await fetch('/main.py'); py.FS.writeFile('main.py', await mRes.text());
-      py._filesLoaded = true;
-    }
-    const r = await py.runPythonAsync(`import main; main.handle(${JSON.stringify(problem)})`);
-    if (!r) return null;
-    return JSON.parse(r);
+    const r = await py.runPythonAsync(`import skills; skills.handle(${JSON.stringify(problem)})`);
+    return r ? JSON.parse(r) : null;
   } catch(e) { console.error(e); return null; }
 }
 
-function getKey() { return document.getElementById('apiKey').value; }
+// ─── Call LLM (GPT-4o-mini) ───
+function getKey() { return document.getElementById("apiKey").value; }
 
 async function callLLM(messages) {
+  if (!getKey()) throw new Error("Please paste your OpenAI API key in the sidebar.");
   const res = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
     headers: {"Content-Type":"application/json","Authorization":`Bearer ${getKey()}`},
     body: JSON.stringify({model: MODEL, messages, temperature: 0.2, max_tokens: 2048})
   });
-  if (!res.ok) throw new Error(`API error ${res.status}: ${await res.text()}`);
-  const data = await res.json();
-  return data.choices[0].message.content;
+  if (!res.ok) throw new Error(`API error ${res.status}: ${(await res.text()).slice(0,200)}`);
+  return (await res.json()).choices[0].message.content;
 }
 
+// ─── Solve with LLM ───
 async function llmSolve(problem) {
   const raw = await callLLM([
-    {role:"system", content:"You are a math expert. Solve with step-by-step reasoning and a proof for each step. Respond ONLY in JSON: {\"answer\": str, \"steps\": [{\"step\": str, \"explanation\": str, \"proof\": str}], \"confidence\": float}"},
+    {role:"system", content:'You are a math expert. Solve with step-by-step reasoning and a proof for each step. Respond ONLY in JSON: {"answer": str, "steps": [{"step": str, "explanation": str, "proof": str}], "confidence": float}'},
     {role:"user", content: problem}
   ]);
-  try { const s = raw.indexOf("{"), e = raw.lastIndexOf("}")+1; return JSON.parse(raw.slice(s,e)); }
+  try { return JSON.parse(raw.slice(raw.indexOf("{"), raw.lastIndexOf("}")+1)); }
   catch(e) { return {answer: raw, steps: [], confidence: 0.5}; }
 }
 
+// ─── Multi-agent solve ───
 async function multiAgentSolve(problem) {
-  const personas = [
-    {name:"Agent 1 — Algebra & Calculus", exp:"algebra, calculus, and symbolic computation"},
-    {name:"Agent 2 — Number Theory & Proofs", exp:"number theory, combinatorics, and proof writing"},
-    {name:"Agent 3 — Geometry & Numerics", exp:"geometry, topology, and numerical methods"},
-  ];
+  // Get agent prompts from Python
+  await initPy();
+  const agentData = await py.runPythonAsync(`
+import skills, json
+data = skills.three_agents(${JSON.stringify(problem)})
+json.dumps(data)
+`);
+  const data = JSON.parse(agentData);
   const responses = {};
-  for (const a of personas) {
-    const raw = await callLLM([
-      {role:"system", content:`You are ${a.name}, expert in ${a.exp}. Respond ONLY in JSON: {"answer": str, "approach": str, "confidence": float, "concerns": list}`},
-      {role:"user", content: problem}
-    ]);
-    try { const s = raw.indexOf("{"), e = raw.lastIndexOf("}")+1; responses[a.name] = JSON.parse(raw.slice(s,e)); }
+  for (const a of data.agents) {
+    const raw = await callLLM([{role:"system", content:a.system}, {role:"user", content:a.user}]);
+    try { responses[a.name] = JSON.parse(raw.slice(raw.indexOf("{"), raw.lastIndexOf("}")+1)); }
     catch(e) { responses[a.name] = {raw}; }
   }
   // Synthesize
   const synRaw = await callLLM([
-    {role:"system", content:"You are a synthesis agent. Combine expert opinions into one rigorous solution with proofs. Respond ONLY in JSON: {\"answer\": str, \"steps\": [{\"step\": str, \"explanation\": str, \"proof\": str}], \"confidence\": float, \"consensus\": bool}"},
-    {role:"user", content:`Problem: ${problem}\nAgent responses: ${JSON.stringify(responses)}\n\nCreate a unified solution.`}
+    {role:"system", content: data.synthesis.system},
+    {role:"user", content: `Problem: ${problem}\nAgent responses: ${JSON.stringify(responses)}\n\nCreate a unified solution.`}
   ]);
   let sol;
-  try { const s = synRaw.indexOf("{"), e = synRaw.lastIndexOf("}")+1; sol = JSON.parse(synRaw.slice(s,e)); }
+  try { sol = JSON.parse(synRaw.slice(synRaw.indexOf("{"), synRaw.lastIndexOf("}")+1)); }
   catch(e) { sol = {answer: synRaw, steps: [], confidence: 0.5}; }
   sol.agents = responses;
   return sol;
 }
 
+// ─── Web search (Wikipedia) ───
+async function searchWeb(query) {
+  try {
+    const title = query.replace(/ /g,"_").replace(/[^a-zA-Z0-9_]/g,"");
+    const res = await fetch(`https://en.wikipedia.org/api/rest_v1/page/summary/${title}`);
+    if (!res.ok) throw new Error();
+    const data = await res.json();
+    return {title: data.title, extract: (data.extract||"").slice(0,250), url: `https://en.wikipedia.org/wiki/${title}`};
+  } catch(e) { return null; }
+}
+
+// ─── Helpers ───
 function esc(s) { const d = document.createElement("div"); d.textContent = s; return d.innerHTML; }
 function toggleMulti() {
   multiAgent = !multiAgent;
@@ -209,19 +229,26 @@ function toggleMulti() {
 }
 document.getElementById("multiToggle").onclick = toggleMulti;
 const inp = document.getElementById("input");
-inp.addEventListener("input", () => { inp.style.height = "auto"; inp.style.height = Math.min(inp.scrollHeight, 120) + "px"; });
-inp.addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }});
+inp.addEventListener("input", () => { inp.style.height = "auto"; inp.style.height = Math.min(inp.scrollHeight,120)+"px"; });
+inp.addEventListener("keydown", e => { if (e.key==="Enter"&&!e.shiftKey) { e.preventDefault(); send(); }});
 
+// ─── Memory (localStorage) ───
+function loadMem() { return JSON.parse(localStorage.getItem("mathMemory")||"[]"); }
+function saveMem(data) { localStorage.setItem("mathMemory", JSON.stringify(data)); }
+
+// ─── Main send ───
 async function send() {
   const problem = inp.value.trim();
   if (!problem || busy) return;
   busy = true; document.getElementById("btn").disabled = true;
   const empty = document.getElementById("empty"); if (empty) empty.remove();
 
+  // User message
   const u = document.createElement("div"); u.className = "msg user";
   u.innerHTML = `<div class="b">${esc(problem)}</div>`;
   document.getElementById("chat").appendChild(u);
 
+  // Agent message
   const a = document.createElement("div"); a.className = "msg agent";
   const bubble = document.createElement("div"); bubble.className = "b";
   a.appendChild(bubble);
@@ -232,39 +259,79 @@ async function send() {
   bubble.appendChild(ld);
 
   try {
-    let sol;
-    if (multiAgent) {
-      sol = await multiAgentSolve(problem);
-    } else {
-      sol = await llmSolve(problem);
+    // 1. Solve with LLM (always)
+    const sol = multiAgent ? await multiAgentSolve(problem) : await llmSolve(problem);
+
+    // 2. Get graph data from Python (skills.py)
+    const pyResult = await callPython(problem);
+    if (pyResult && pyResult.graph_data) sol.graph_data = pyResult.graph_data;
+
+    // 3. Double-check with Python
+    if (sol.answer) {
+      try {
+        const checkRaw = await py.runPythonAsync(`
+import skills, json
+result = skills.double_check(${JSON.stringify(problem)}, ${JSON.stringify(sol.answer)})
+json.dumps(result)
+`);
+        const check = JSON.parse(checkRaw);
+        sol.verified = check.verified;
+        sol.python_answer = check.python_answer;
+      } catch(e) {}
     }
-    // Add graph data from Python if applicable
-    const pySol = await pyGraph(problem);
-    if (pySol && pySol.graph_data) sol.graph_data = pySol.graph_data;
+
+    // 4. Search Wikipedia for the first theorem mentioned
+    if (sol.steps && sol.steps.length > 0 && sol.steps[0].proof) {
+      const theorem = sol.steps[0].proof.split(":")[0].split("—")[0].trim();
+      if (theorem.length > 3) {
+        const wiki = await searchWeb(theorem);
+        if (wiki) sol.source = wiki;
+      }
+    }
 
     ld.remove();
     render(sol, bubble);
+
+    // 5. Save to memory
+    const mem = loadMem();
+    mem.push({problem, answer: sol.answer, confidence: sol.confidence, ts: Date.now()});
+    saveMem(mem);
   } catch(e) { ld.remove(); bubble.innerHTML = `<div class="err">${esc(e.message)}</div>`; }
 
   busy = false; document.getElementById("btn").disabled = false;
   document.getElementById("chat").scrollTop = 99999;
 }
 
+// ─── Render solution ───
 function render(sol, bubble) {
+  // Answer
   if (sol.answer) {
     const a = document.createElement("div"); a.className = "ans-box";
     a.innerHTML = `<div class="lb">Answer</div><div class="vl">${esc(sol.answer)}</div>`;
     bubble.appendChild(a);
   }
+
+  // Verification badge
+  if (sol.verified !== undefined) {
+    const v = document.createElement("div");
+    v.className = "verify-badge " + (sol.verified ? "ok" : "no");
+    v.textContent = sol.verified ? "✓ Double-checked with Python" : "⚠ Python got a different answer";
+    if (sol.python_answer) v.textContent += ` (Python: ${esc(sol.python_answer)})`;
+    bubble.appendChild(v);
+  }
+
+  // Steps
   if (sol.steps && sol.steps.length) {
-    const t = document.createElement("div"); t.className = "steps-title"; t.textContent = "Steps"; bubble.appendChild(t);
+    const t = document.createElement("div"); t.className = "steps-title"; t.textContent = "Steps";
+    bubble.appendChild(t);
     sol.steps.forEach((s, i) => {
       const e = document.createElement("div"); e.className = "step-it";
       e.innerHTML = `<div class="sn">Step ${i+1}</div><div class="sc">${esc(s.step||"")}</div>${s.explanation?`<div class="se">${esc(s.explanation)}</div>`:""}${s.proof?`<div class="sp">📐 ${esc(s.proof)}</div>`:""}`;
       bubble.appendChild(e);
     });
   }
-  // Agent responses (multi-agent mode)
+
+  // Agent discussion
   if (sol.agents) {
     const t = document.createElement("div"); t.className = "ag-title"; t.textContent = "👥 Agent Discussion";
     bubble.appendChild(t);
@@ -274,6 +341,7 @@ function render(sol, bubble) {
       bubble.appendChild(e);
     }
   }
+
   // Confidence
   const pct = Math.round((sol.confidence || 0.8) * 100);
   const cls = pct >= 70 ? "h" : pct >= 40 ? "m" : "l";
@@ -281,6 +349,7 @@ function render(sol, bubble) {
   const b = document.createElement("div"); b.className = "conf-bar";
   b.innerHTML = `<span style="font-size:13px;color:var(--dim)">Confidence</span><div class="conf-trk"><div class="conf-fill ${cls}" style="width:${pct}%"></div></div><span class="conf-lb">${pct}% — ${lb}</span>`;
   bubble.appendChild(b);
+
   // Graph
   if (sol.graph_data) {
     const g = document.createElement("div"); g.className = "graph-container"; g.id = "g" + Date.now();
@@ -290,9 +359,15 @@ function render(sol, bubble) {
       xaxis: {title: "x", range: sol.graph_data.x_range || [-10,10]},
       yaxis: {title: "y"},
       paper_bgcolor: "transparent", plot_bgcolor: "#161b22",
-      font: {color: "#e6edf3"}, margin: {l:50,r:20,t:40,b:40},
-      height: 400, autosize: true
+      font: {color: "#e6edf3"}, margin: {l:50,r:20,t:40,b:40}, height: 400, autosize: true
     }, {responsive: true, displayModeBar: false});
+  }
+
+  // Source link
+  if (sol.source) {
+    const s = document.createElement("div"); s.className = "src-card";
+    s.innerHTML = `<div class="sn">Wikipedia</div><div style="font-size:14px;margin-top:4px">${esc(sol.source.title)}</div><div style="font-size:13px;color:var(--dim);margin-top:4px">${esc(sol.source.extract)}...</div><a href="${sol.source.url}" target="_blank">🔗 ${esc(sol.source.url)}</a>`;
+    bubble.appendChild(s);
   }
 }
 </script>
