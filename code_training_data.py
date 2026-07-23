@@ -1,0 +1,77 @@
+"""Generate problem-to-code training data for fine-tuning the model on code generation."""
+
+CODE_TRAINING_SAMPLES = [
+    {
+        "problem": "Find the derivative of 3*x**2 + 2*x - 5",
+        "code": "from sympy import *\nx = symbols('x')\nexpr = 3*x**2 + 2*x - 5\nderiv = diff(expr, x)\n_result = {\n    'answer': str(deriv),\n    'steps': [{'step': f'd/dx({expr}) = {deriv}', 'explanation': 'Power rule term by term', 'proof': 'Power Rule: d/dx(x^n) = n*x^(n-1)'}],\n    'proofs': [{'theorem': 'Power Rule', 'statement': 'd/dx(x^n) = n*x^(n-1)', 'applied_to': 'each term'}],\n    'method': 'symbolic_differentiation'\n}"
+    },
+    {
+        "problem": "Evaluate the integral of x**2 from 0 to 3",
+        "code": "from sympy import *\nx = symbols('x')\nexpr = x**2\nresult = integrate(expr, (x, 0, 3))\nantideriv = integrate(expr, x)\n_result = {\n    'answer': str(result),\n    'steps': [{'step': f'Antiderivative: {antideriv}', 'explanation': 'Power rule for integration', 'proof': 'Power Rule for Integration'}, {'step': f'F(3) - F(0) = {result}', 'explanation': 'FTC Part 2', 'proof': 'Fundamental Theorem of Calculus'}],\n    'proofs': [{'theorem': 'FTC', 'statement': 'integral_a^b f(x)dx = F(b) - F(a)', 'applied_to': 'definite integral'}],\n    'method': 'definite_integration'\n}"
+    },
+    {
+        "problem": "Solve x**2 - 4*x + 4 = 0",
+        "code": "from sympy import *\nx = symbols('x')\neq = x**2 - 4*x + 4\nsolutions = solve(eq, x)\n_result = {\n    'answer': str(solutions),\n    'steps': [{'step': f'Solve {eq} = 0', 'explanation': 'Find roots', 'proof': 'Zero Product Property'}],\n    'proofs': [{'theorem': 'FTA', 'statement': 'Degree n polynomial has n roots', 'applied_to': 'quadratic'}],\n    'method': 'symbolic_solving'\n}"
+    },
+    {
+        "problem": "Find the limit of sin(x)/x as x approaches 0",
+        "code": "from sympy import *\nx = symbols('x')\nexpr = sin(x)/x\nlim = limit(expr, x, 0)\n_result = {\n    'answer': str(lim),\n    'steps': [{'step': f'lim(x->0) sin(x)/x = {lim}', 'explanation': 'Squeeze theorem', 'proof': 'Squeeze Theorem'}],\n    'proofs': [{'theorem': 'Squeeze Theorem', 'statement': 'If g<=f<=h and lim g = lim h = L, then lim f = L', 'applied_to': 'sin(x)/x'}],\n    'method': 'limit_computation'\n}"
+    },
+    {
+        "problem": "Find the eigenvalues of matrix [[3,1],[1,3]]",
+        "code": "from sympy import *\nlam = symbols('lambda')\nA = Matrix([[3, 1], [1, 3]])\nchar_poly = A.charpoly(lam)\neigenvals = solve(char_poly, lam)\n_result = {\n    'answer': str(eigenvals),\n    'steps': [{'step': f'Characteristic polynomial: {char_poly.as_expr()}', 'explanation': 'det(A - lambda*I) = 0', 'proof': 'Characteristic Equation'}],\n    'proofs': [{'theorem': 'Characteristic Equation', 'statement': 'det(A - lambda*I) = 0', 'applied_to': 'matrix A'}],\n    'method': 'eigenvalue_computation'\n}"
+    },
+    {
+        "problem": "Compute the Taylor series of exp(x) around x=0",
+        "code": "from sympy import *\nx = symbols('x')\ntaylor = series(exp(x), x, 0, n=5)\n_result = {\n    'answer': str(taylor),\n    'steps': [{'step': f'Taylor series: {taylor}', 'explanation': 'Expand around 0 to order 5', 'proof': 'Taylor Series Theorem'}],\n    'proofs': [{'theorem': 'Taylor Series', 'statement': 'f(x) = sum f^(n)(a)/n! (x-a)^n', 'applied_to': 'exp(x) at 0'}],\n    'method': 'taylor_series'\n}"
+    },
+    {
+        "problem": "Find the gradient of x**2 + y**2",
+        "code": "from sympy import *\nx, y = symbols('x y')\nexpr = x**2 + y**2\ngrad = [diff(expr, x), diff(expr, y)]\n_result = {\n    'answer': str(grad),\n    'steps': [{'step': f'grad = {grad}', 'explanation': 'Partial derivatives', 'proof': 'Gradient Definition'}],\n    'proofs': [{'theorem': 'Gradient', 'statement': 'grad f = (df/dx, df/dy)', 'applied_to': 'scalar field'}],\n    'method': 'gradient'\n}"
+    },
+    {
+        "problem": "Does the series 1/n**2 converge?",
+        "code": "from sympy import *\nn = symbols('n')\nexpr = 1/n**2\nratio = limit(abs(expr.subs(n, n+1) / expr.subs(n, n)), n, oo)\n_result = {\n    'answer': f'Converges (Ratio Test, ratio={ratio})',\n    'steps': [{'step': f'Ratio test: {ratio}', 'explanation': 'ratio < 1 so converges', 'proof': 'Ratio Test'}],\n    'proofs': [{'theorem': 'Ratio Test', 'statement': 'If lim|a_(n+1)/a_n| < 1, converges', 'applied_to': '1/n^2'}],\n    'method': 'series_convergence'\n}"
+    },
+    {
+        "problem": "Compute 5 choose 2",
+        "code": "from sympy import *\nresult = binomial(5, 2)\n_result = {\n    'answer': str(result),\n    'steps': [{'step': f'C(5,2) = {result}', 'explanation': '5!/(2!*3!)', 'proof': 'Combination Formula'}],\n    'proofs': [{'theorem': 'Combination Formula', 'statement': 'C(n,k) = n!/(k!(n-k)!)', 'applied_to': 'C(5,2)'}],\n    'method': 'combination'\n}"
+    },
+    {
+        "problem": "Find the determinant of matrix [[1,2],[3,4]]",
+        "code": "from sympy import *\nA = Matrix([[1, 2], [3, 4]])\ndet_val = A.det()\n_result = {\n    'answer': str(det_val),\n    'steps': [{'step': f'det = {det_val}', 'explanation': 'ad - bc = 1*4 - 2*3', 'proof': 'Determinant of 2x2'}],\n    'proofs': [{'theorem': 'Determinant', 'statement': 'det([[a,b],[c,d]]) = ad-bc', 'applied_to': 'given matrix'}],\n    'method': 'determinant_computation'\n}"
+    },
+    {
+        "problem": "Compute the mean of [1, 2, 3, 4, 5]",
+        "code": "from sympy import *\nimport numpy as np\ndata = np.array([1.0, 2.0, 3.0, 4.0, 5.0])\nmean_val = float(np.mean(data))\n_result = {\n    'answer': str(mean_val),\n    'steps': [{'step': f'Mean = {mean_val}', 'explanation': 'sum/n = 15/5', 'proof': 'Arithmetic Mean'}],\n    'proofs': [{'theorem': 'Arithmetic Mean', 'statement': 'x_bar = (1/n) sum x_i', 'applied_to': 'dataset'}],\n    'method': 'mean'\n}"
+    },
+    {
+        "problem": "Solve the differential equation y' + y = 0",
+        "code": "from sympy import *\nx = symbols('x')\ny = Function('y')\node = Eq(y(x).diff(x) + y(x), 0)\nsol = dsolve(ode, y(x))\n_result = {\n    'answer': str(sol),\n    'steps': [{'step': f'ODE: {ode}', 'explanation': 'First-order linear ODE', 'proof': 'Integrating Factor Method'}, {'step': f'Solution: {sol}', 'explanation': 'General solution', 'proof': 'Existence and Uniqueness'}],\n    'proofs': [{'theorem': 'Integrating Factor', 'statement': 'Multiply by exp(integral P dx)', 'applied_to': 'linear ODE'}],\n    'method': 'differential_equation'\n}"
+    },
+]
+
+
+def generate_code_training_data():
+    """Generate training data for code generation fine-tuning."""
+    import json
+    import os
+    from config import DATA_DIR
+
+    data_file = os.path.join(DATA_DIR, "math_code_train.jsonl")
+
+    with open(data_file, 'w') as f:
+        for s in CODE_TRAINING_SAMPLES:
+            messages = [
+                {"role": "system", "content": "You are a Python code generator. Output ONLY executable Python code using sympy. Set _result dict with answer, steps, proofs, method. No markdown fences, no explanation."},
+                {"role": "user", "content": s["problem"]},
+                {"role": "assistant", "content": s["code"]}
+            ]
+            f.write(json.dumps({"messages": messages}) + "\n")
+
+    print(f"Generated {len(CODE_TRAINING_SAMPLES)} code-generation training samples at {data_file}")
+    return data_file
+
+
+if __name__ == "__main__":
+    generate_code_training_data()

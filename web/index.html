@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Math AI Agent</title>
+<script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+<script src="https://cdn.jsdelivr.net/pyodide/v0.26.2/full/pyodide.js"></script>
+<style>
+:root{--bg:#0d1117;--surface:#161b22;--surface2:#21262d;--border:#30363d;--text:#e6edf3;--dim:#8b949e;--accent:#58a6ff;--green:#3fb950;--warn:#d29922;--err:#f85149;--radius:10px}
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:15px;line-height:1.7;height:100vh;overflow:hidden}
+.app{display:flex;height:100vh;flex-direction:column}
+.chat{flex:1;overflow-y:auto;padding:24px 32px}
+.chat::-webkit-scrollbar{width:6px}.chat::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
+.welcome{max-width:600px;margin:40px auto;text-align:center}
+.welcome h2{font-size:28px;font-weight:700;margin-bottom:8px}
+.welcome p{color:var(--dim);font-size:15px;margin-bottom:24px}
+.examples{display:grid;grid-template-columns:1fr 1fr;gap:10px;max-width:600px;margin:0 auto}
+.ex-btn{padding:12px 16px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);cursor:pointer;transition:.2s;color:var(--dim);font-size:13px;text-align:left}
+.ex-btn:hover{border-color:var(--accent);color:var(--text);background:var(--surface2)}
+.msg{max-width:700px;margin:0 auto 20px}
+.msg.user{text-align:right}
+.msg.user .b{background:var(--accent);color:#fff;display:inline-block;padding:12px 18px;border-radius:var(--radius) var(--radius) 4px var(--radius);max-width:80%;text-align:left}
+.msg.agent .b{background:var(--surface);border:1px solid var(--border);padding:20px 24px;border-radius:var(--radius) var(--radius) var(--radius) 4px}
+.ans-box{background:rgba(63,185,80,.06);border:1px solid rgba(63,185,80,.25);border-radius:var(--radius);padding:16px 20px;margin-bottom:16px}
+.ans-box .lb{font-size:11px;text-transform:uppercase;color:var(--green);font-weight:700;letter-spacing:.5px}
+.ans-box .vl{font-size:22px;font-weight:700;margin-top:6px;word-break:break-word}
+.steps-title{font-size:13px;font-weight:700;color:var(--accent);margin-bottom:12px}
+.step-it{background:var(--surface2);border-radius:8px;padding:14px 16px;margin-bottom:10px;border-left:3px solid var(--accent)}
+.step-it .sn{font-size:11px;color:var(--accent);font-weight:700;text-transform:uppercase}
+.step-it .sc{font-size:16px;margin-top:6px;font-weight:500}
+.step-it .se{font-size:14px;color:var(--dim);margin-top:6px;line-height:1.6}
+.step-it .sp{font-size:13px;color:var(--warn);margin-top:6px;padding:6px 10px;background:rgba(210,153,34,.06);border-radius:6px;border-left:2px solid var(--warn)}
+.conf-bar{display:flex;align-items:center;gap:10px;margin-top:16px}
+.conf-trk{flex:1;height:8px;background:var(--surface2);border-radius:4px;overflow:hidden}
+.conf-fill{height:100%;border-radius:4px;transition:width .5s}
+.conf-fill.h{background:var(--green)}.conf-fill.m{background:var(--warn)}.conf-fill.l{background:var(--err)}
+.conf-lb{font-size:14px;font-weight:600;min-width:120px;text-align:right}
+.graph-container{margin:16px 0;border:1px solid var(--border);border-radius:var(--radius);overflow:hidden}
+.input-bar{padding:16px 32px 20px;background:var(--surface);border-top:1px solid var(--border)}
+.input-ctn{max-width:700px;margin:0 auto;display:flex;gap:10px;align-items:flex-end}
+.input-ctn textarea{flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);color:var(--text);padding:12px 16px;font-size:14px;font-family:inherit;resize:none;min-height:48px;max-height:120px;transition:.2s}
+.input-ctn textarea:focus{outline:none;border-color:var(--accent)}
+.input-ctn textarea::placeholder{color:var(--dim)}
+.send-btn{background:var(--accent);color:#fff;border:none;border-radius:var(--radius);padding:12px 20px;font-size:14px;font-weight:600;cursor:pointer;transition:.2s;white-space:nowrap}
+.send-btn:hover{background:#4c9aef}.send-btn:disabled{background:var(--border);cursor:not-allowed}
+.loading{padding:20px;text-align:center;color:var(--dim)}
+.loading .sp{width:24px;height:24px;border:3px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite;margin:0 auto 10px}
+@keyframes spin{to{transform:rotate(360deg)}}
+.err{color:var(--err);font-size:14px;padding:8px 0}
+</style>
+</head>
+<body>
+<div class="app">
+<div class="chat" id="chat">
+<div class="welcome" id="welcome">
+<h2>🧮 Math AI Agent</h2>
+<p>Ask a math question. You'll see the steps and a confidence score.</p>
+<div class="examples">
+<button class="ex-btn" data-p="Find all eigenvalues of the matrix [[2,1],[1,2]]">🔢 Eigenvalues of [[2,1],[1,2]]</button>
+<button class="ex-btn" data-p="Find the derivative of 3x^3 + 2x^2 - 5x + 1">📈 Derivative of 3x³+2x²-5x+1</button>
+<button class="ex-btn" data-p="Evaluate the integral of 2x + 3 from 0 to 2">∫ Integral of 2x+3 from 0 to 2</button>
+<button class="ex-btn" data-p="Solve x^2 - 5x + 6 = 0">🔑 Solve x²-5x+6=0</button>
+<button class="ex-btn" data-p="Find the limit of (x^2 - 1)/(x - 1) as x approaches 1">📏 Limit of (x²-1)/(x-1)</button>
+<button class="ex-btn" data-p="5 choose 2">🎲 5 choose 2</button>
+<button class="ex-btn" data-p="Graph y = sin(x) from -6 to 6">📊 Graph sin(x)</button>
+<button class="ex-btn" data-p="standard deviation of [2, 4, 6, 8]">📋 Std dev of [2,4,6,8]</button>
+</div>
+</div>
+</div>
+<div class="input-bar"><div class="input-ctn">
+<textarea id="input" placeholder="Type a math problem..." rows="1"></textarea>
+<button class="send-btn" id="btn" onclick="send()">➤ Solve</button>
+</div></div>
+</div>
+<script>
+const API_KEY = "";  // set at runtime, never commit  // set at runtime, never commit
+const MODEL = "gpt-4o-mini";
+let busy = false, pyReady = false;
+
+async function initPy() {
+  if (pyReady) return;
+  py = await loadPyodide();
+  await py.loadPackage("sympy");
+  await py.loadPackage("numpy");
+  pyReady = true;
+}
+
+async function pyGraph(problem) {
+  await initPy();
+  try {
+    if (!py._filesLoaded) {
+      const sRes = await fetch('/skills.py'); py.FS.writeFile('skills.py', await sRes.text());
+      const mRes = await fetch('/main.py'); py.FS.writeFile('main.py', await mRes.text());
+      py._filesLoaded = true;
+    }
+    // Python only generates graph data if the problem is a graph request
+    const r = await py.runPythonAsync(`import main; main.handle(${JSON.stringify(problem)})`);
+    if (!r) return null;
+    return JSON.parse(r);
+  } catch(e) { console.error(e); return null; }
+}
+
+async function llmSolve(problem) {
+  const res = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: {"Content-Type":"application/json","Authorization":`Bearer ${API_KEY}`},
+    body: JSON.stringify({model: MODEL, messages: [
+      {role:"system", content:"You are a math expert. Solve with steps. Respond ONLY in JSON: {\"answer\":str,\"steps\":[{\"step\":str,\"explanation\":str,\"proof\":str}],\"confidence\":float}"},
+      {role:"user", content: problem}
+    ], temperature: 0.2, max_tokens: 2048})
+  });
+  const data = await res.json();
+  const raw = data.choices[0].message.content;
+  try { const s = raw.indexOf("{"), e = raw.lastIndexOf("}")+1; return JSON.parse(raw.slice(s,e)); }
+  catch(e) { return {answer: raw, steps: [], confidence: 0.5}; }
+}
+
+function esc(s) { const d = document.createElement("div"); d.textContent = s; return d.innerHTML; }
+
+document.querySelectorAll(".ex-btn").forEach(b => b.onclick = () => { document.getElementById("input").value = b.dataset.p; document.getElementById("input").focus(); });
+const inp = document.getElementById("input");
+inp.addEventListener("input", () => { inp.style.height = "auto"; inp.style.height = Math.min(inp.scrollHeight, 120) + "px"; });
+inp.addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }});
+
+async function send() {
+  const problem = inp.value.trim();
+  if (!problem || busy) return;
+  busy = true; document.getElementById("btn").disabled = true;
+  const w = document.getElementById("welcome"); if (w) w.style.display = "none";
+
+  const u = document.createElement("div"); u.className = "msg user";
+  u.innerHTML = `<div class="b">${esc(problem)}</div>`;
+  document.getElementById("chat").appendChild(u);
+
+  const a = document.createElement("div"); a.className = "msg agent";
+  const bubble = document.createElement("div"); bubble.className = "b";
+  a.appendChild(bubble);
+  document.getElementById("chat").appendChild(a);
+
+  const ld = document.createElement("div"); ld.className = "loading";
+  ld.innerHTML = '<div class="sp"></div>Solving...'; bubble.appendChild(ld);
+
+  try {
+    // 1. Always use the LLM (GPT-4o-mini) to solve
+    sol = await llmSolve(problem);
+    // 2. Ask Python to add graph data if it's a graph problem
+    const pySol = await pyGraph(problem);
+    if (pySol && pySol.graph_data) {
+      sol.graph_data = pySol.graph_data;
+    }
+    ld.remove();
+    if (sol) render(sol, bubble); else bubble.innerHTML = '<div class="err">Could not solve.</div>';
+  } catch(e) { ld.remove(); bubble.innerHTML = `<div class="err">${esc(e.message)}</div>`; }
+
+  busy = false; document.getElementById("btn").disabled = false;
+  document.getElementById("chat").scrollTop = 99999;
+}
+
+function render(sol, bubble) {
+  if (sol.answer) {
+    const a = document.createElement("div"); a.className = "ans-box";
+    a.innerHTML = `<div class="lb">Answer</div><div class="vl">${esc(sol.answer)}</div>`;
+    bubble.appendChild(a);
+  }
+  if (sol.steps && sol.steps.length) {
+    const t = document.createElement("div"); t.className = "steps-title"; t.textContent = "Steps"; bubble.appendChild(t);
+    sol.steps.forEach((s, i) => {
+      const e = document.createElement("div"); e.className = "step-it";
+      e.innerHTML = `<div class="sn">Step ${i+1}</div><div class="sc">${esc(s.step||"")}</div>${s.explanation?`<div class="se">${esc(s.explanation)}</div>`:""}${s.proof?`<div class="sp">📐 ${esc(s.proof)}</div>`:""}`;
+      bubble.appendChild(e);
+    });
+  }
+  const pct = Math.round((sol.confidence || 0.8) * 100);
+  const cls = pct >= 70 ? "h" : pct >= 40 ? "m" : "l";
+  const lb = pct >= 70 ? "High confidence" : pct >= 40 ? "Moderate" : "Low";
+  const b = document.createElement("div"); b.className = "conf-bar";
+  b.innerHTML = `<span style="font-size:13px;color:var(--dim)">Confidence</span><div class="conf-trk"><div class="conf-fill ${cls}" style="width:${pct}%"></div></div><span class="conf-lb">${pct}% — ${lb}</span>`;
+  bubble.appendChild(b);
+
+  if (sol.graph_data) {
+    const g = document.createElement("div"); g.className = "graph-container"; g.id = "g" + Date.now();
+    bubble.appendChild(g);
+    Plotly.newPlot(g, sol.graph_data.traces, {
+      title: sol.graph_data.title || "Graph",
+      xaxis: {title: "x", range: sol.graph_data.x_range || [-10,10]},
+      yaxis: {title: "y"},
+      paper_bgcolor: "transparent", plot_bgcolor: "#161b22",
+      font: {color: "#e6edf3"}, margin: {l:50,r:20,t:40,b:40}
+    }, {responsive: true, displayModeBar: false});
+  }
+}
+</script>
+</body>
+</html>
