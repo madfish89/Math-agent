@@ -4,12 +4,11 @@ skills.py — All math skills for the Math AI Agent.
 Skills:
   1. generate_code      — Generate Python (sympy) code to solve a problem
   2. search_web          — Search Wikipedia for formulas and theorems
-  3. present_graph       — Create graph, histogram, or scatter plot data
+  3. present_graph       — Create graph, histogram, or scatter plot (matplotlib + seaborn)
   4. memory              — Remember previous problems (browser localStorage)
   5. double_check        — Verify a solution by re-deriving independently
   6. three_agents        — Split into 3 agents for complex problems
-  7. graph_presenter     — Graph/histogram/scatter using matplotlib + seaborn
-  8. multi_model         — Multi-model discussion prompts
+  7. multi_model          — Multi-model discussion prompts
 
 All functions return plain Python dicts/strings.
 Called from the browser via Pyodide — no server needed.
@@ -17,11 +16,20 @@ Called from the browser via Pyodide — no server needed.
 
 import re as _re
 import json
+import io
+import base64
 from sympy import *
 from sympy import solve as sp_solve
 import numpy as np
+import matplotlib
+matplotlib.use("Agg")  # headless mode for Pyodide
+import matplotlib.pyplot as plt
+import seaborn as sns
 
 re = _re  # prevent sympy from shadowing the re module
+
+sns.set_theme(style="darkgrid", palette="muted")
+plt.style.use("dark_background")
 
 
 # ──────────────────────────────────────────────
@@ -59,56 +67,32 @@ def fmt(s):
 def generate_code(problem):
     """Generate Python code (as a string) to solve the problem with sympy."""
     p = problem.lower().strip()
-
-    # Derivative
     m = re.search(r"derivative\s+of\s+(.+)|differentiate\s+(.+)", p)
     if m:
         e = norm((m.group(1) or m.group(2)).strip().rstrip("."))
-        return f"from sympy import *\nx = symbols('x')\nexpr = sympify('{e}')\n_result = str(diff(expr, x))"
-
-    # Integral
+        return f"from sympy import *\nx = symbols('x')\n_result = str(diff(sympify('{e}'), x))"
     m = re.search(r"integral\s+of\s+(.+)|integrate\s+(.+)", p)
     if m:
         raw = (m.group(1) or m.group(2)).strip()
         mi = re.search(r"(.+?)\s+from\s+(\S+)\s+to\s+(\S+)", raw)
         if mi:
             e = norm(mi.group(1).strip())
-            return f"from sympy import *\nx = symbols('x')\nexpr = sympify('{e}')\n_result = str(integrate(expr, (x, sympify('{mi.group(2)}'), sympify('{mi.group(3)}'))))"
-        e = norm(raw)
-        return f"from sympy import *\nx = symbols('x')\nexpr = sympify('{e}')\n_result = str(integrate(expr, x))"
-
-    # Solve equation
+            return f"from sympy import *\nx = symbols('x')\n_result = str(integrate(sympify('{e}'), (x, sympify('{mi.group(2)}'), sympify('{mi.group(3)}'))))"
+        return f"from sympy import *\nx = symbols('x')\n_result = str(integrate(sympify('{norm(raw)}'), x))"
     m = re.search(r"solve\s+(.+)", p)
     if m:
         e = norm(m.group(1).strip())
         if "=" in e: parts = e.split("="); e = f"({parts[0]})-({parts[1]})"
-        return f"from sympy import *\nx = symbols('x')\n_result = str(sympify('{e}'))"
-
-    # Eigenvalues
-    m = re.search(r"eigenvalue.*\[([^\]]+),\s*([^\]]+)\]", p) or re.search(r"\[([^\]]+),\s*([^\]]+)\].*eigenvalue", p)
-    if m:
-        r1 = [int(float(x)) for x in m.group(1).split(",")]
-        r2 = [int(float(x)) for x in m.group(2).split(",")]
-        return f"from sympy import *\nlam = symbols('l')\nA = Matrix({r1}, {r2})\n_result = str(solve(A.charpoly(lam), lam))"
-
-    # Combinations
+        return f"from sympy import *\nx = symbols('x')\n_result = str(sp_solve(sympify('{e}'), x))"
     m = re.search(r"([0-9]+)\s+choose\s+([0-9]+)", p)
-    if m:
-        return f"from sympy import *\n_result = str(binomial({m.group(1)}, {m.group(2)}))"
-
-    # Factorial
+    if m: return f"from sympy import *\n_result = str(binomial({m.group(1)}, {m.group(2)}))"
     m = re.search(r"factorial\s+of\s+([0-9]+)|([0-9]+)!", p)
-    if m:
-        n = m.group(1) or m.group(2)
-        return f"from sympy import *\n_result = str(factorial({n}))"
-
+    if m: return f"from sympy import *\n_result = str(factorial({m.group(1) or m.group(2)}))"
     return None
 
 
 # ──────────────────────────────────────────────
 # 2. WEB SEARCH
-# Search Wikipedia for formulas and theorems.
-# (Called from JS fetch — Python returns the search query.)
 # ──────────────────────────────────────────────
 
 def search_web(theorem):
@@ -118,87 +102,114 @@ def search_web(theorem):
 
 
 # ──────────────────────────────────────────────
-# 3 & 7. GRAPH PRESENTER
-# Create graph, histogram, or scatter plot data.
-# Uses matplotlib + seaborn style (in browser: converts to Plotly traces).
+# 3. GRAPH PRESENTER (matplotlib + seaborn)
+# Returns a base64 PNG image that the browser displays directly.
 # ──────────────────────────────────────────────
 
 def present_graph(problem):
-    """Detect graph requests and return Plotly-compatible trace data."""
+    """Detect graph/histogram/scatter requests and return a base64 PNG image."""
     p = problem.lower().strip()
 
-    # Graph y = f(x) from a to b
     m = re.search(r"graph\s+y\s*=\s*(.+?)\s+from\s+(-?[0-9]+)\s+to\s+(-?[0-9]+)", p)
     if m:
-        e, a, b = m.group(1).strip(), int(m.group(2)), int(m.group(3))
-        return _line_graph(e, a, b)
+        return _line_graph(m.group(1).strip(), int(m.group(2)), int(m.group(3)))
 
-    # Graph f and g from a to b
     m = re.search(r"graph\s+(.+?)\s+and\s+(.+?)\s+from\s+(-?[0-9]+)\s+to\s+(-?[0-9]+)", p)
     if m:
-        return _line_graph_multi(m.group(1).strip(), m.group(2).strip(), int(m.group(3)), int(m.group(4)))
+        return _line_graph_multi(m.group(1).strip(), m.group(2).strip(),
+                                  int(m.group(3)), int(m.group(4)))
 
-    # Graph y = f(x)
     m = re.search(r"graph\s+y\s*=\s*(.+)", p)
     if m:
         return _line_graph(m.group(1).strip(), -10, 10)
 
-    # Histogram of [data]
     m = re.search(r"histogram\s+of\s+\[([^\]]+)\]", p)
     if m:
         return _histogram([float(x) for x in m.group(1).split(",")])
 
-    # Scatter plot of [data]
-    m = re.search(r"scatter\s+plot\s+of\s+\[([^\]]+)\]", p) or re.search(r"scatter\s+\[([^\]]+)\]", p)
+    m = re.search(r"scatter\s+plot\s+of\s+\[([^\]]+)\]|scatter\s+\[([^\]]+)\]", p)
     if m:
-        nums = [float(x) for x in m.group(1).split(",")]
+        nums = [float(x) for x in (m.group(1) or m.group(2)).split(",")]
         return _scatter(nums)
 
     return None
 
 
-def _line_graph(expr_str, a, b, pts=200):
-    """Generate line graph trace data (matplotlib plt.plot equivalent)."""
+def _fig_to_base64(fig):
+    """Convert a matplotlib figure to a base64 PNG string."""
+    buf = io.BytesIO()
+    fig.savefig(buf, format="png", dpi=100, bbox_inches="tight",
+               facecolor="#161b22", edgecolor="none")
+    plt.close(fig)
+    buf.seek(0)
+    return "data:image/png;base64," + base64.b64encode(buf.read()).decode()
+
+
+def _line_graph(expr_str, a, b, pts=400):
+    """Line graph using plt.plot + seaborn style."""
     x = symbols("x")
     expr = sympify(norm(expr_str))
     f = lambdify(x, expr, "numpy")
     xs = np.linspace(a, b, pts)
-    ys = [float(f(xi)) for xi in xs]
-    return {"traces": [{"x": xs.tolist(), "y": ys, "name": expr_str, "type": "scatter", "mode": "lines"}],
-            "title": "Graph", "x_range": [a, b]}
+    ys = np.array([float(f(xi)) for xi in xs])
+
+    fig, ax = plt.subplots(figsize=(8, 5))
+    ax.plot(xs, ys, color="#58a6ff", linewidth=2, label=f"y = {expr_str}")
+    ax.set_xlabel("x", fontsize=12)
+    ax.set_ylabel("y", fontsize=12)
+    ax.set_title(f"Graph of y = {expr_str}", fontsize=14, pad=12)
+    ax.legend(fontsize=11)
+    ax.axhline(0, color="#30363d", linewidth=0.8)
+    ax.axvline(0, color="#30363d", linewidth=0.8)
+    fig.tight_layout()
+    return {"image": _fig_to_base64(fig), "title": f"Graph of y = {expr_str}"}
 
 
-def _line_graph_multi(e1, e2, a, b, pts=200):
-    """Generate multi-line graph (plt.plot with multiple lines + seaborn style)."""
+def _line_graph_multi(e1, e2, a, b, pts=400):
+    """Multi-line graph using plt.plot + seaborn palette."""
     x = symbols("x")
-    traces = []
-    for e in [e1, e2]:
+    fig, ax = plt.subplots(figsize=(8, 5))
+    colors = ["#58a6ff", "#bc8cff"]
+    for i, e in enumerate([e1, e2]):
         expr = sympify(norm(e))
         f = lambdify(x, expr, "numpy")
         xs = np.linspace(a, b, pts)
-        ys = [float(f(xi)) for xi in xs]
-        traces.append({"x": xs.tolist(), "y": ys, "name": e, "type": "scatter", "mode": "lines"})
-    return {"traces": traces, "title": "Graph", "x_range": [a, b]}
+        ys = np.array([float(f(xi)) for xi in xs])
+        ax.plot(xs, ys, color=colors[i], linewidth=2, label=f"y = {e}")
+    ax.set_xlabel("x", fontsize=12)
+    ax.set_ylabel("y", fontsize=12)
+    ax.set_title("Graph Comparison", fontsize=14, pad=12)
+    ax.legend(fontsize=11)
+    ax.axhline(0, color="#30363d", linewidth=0.8)
+    fig.tight_layout()
+    return {"image": _fig_to_base64(fig), "title": "Graph Comparison"}
 
 
 def _histogram(data):
-    """Generate histogram trace data (plt.hist + seaborn sns.histplot equivalent)."""
-    return {"traces": [{"x": data, "type": "histogram", "name": "Data", "marker": {"color": "#58a6ff"}}],
-            "title": "Histogram", "x_range": [min(data) - 1, max(data) + 1]}
+    """Histogram using sns.histplot + plt."""
+    fig, ax = plt.subplots(figsize=(8, 5))
+    sns.histplot(data, bins=min(len(data), 15), color="#58a6ff", alpha=0.8, ax=ax)
+    ax.set_xlabel("Value", fontsize=12)
+    ax.set_ylabel("Count", fontsize=12)
+    ax.set_title("Histogram", fontsize=14, pad=12)
+    fig.tight_layout()
+    return {"image": _fig_to_base64(fig), "title": "Histogram"}
 
 
 def _scatter(data):
-    """Generate scatter plot trace data (plt.scatter + seaborn equivalent)."""
-    x = list(range(len(data)))
-    return {"traces": [{"x": x, "y": data, "type": "scatter", "mode": "markers",
-                         "marker": {"size": 8, "color": "#3fb950"}, "name": "Data"}],
-            "title": "Scatter Plot", "x_range": [0, len(data)]}
+    """Scatter plot using sns.scatterplot + plt."""
+    fig, ax = plt.subplots(figsize=(8, 5))
+    xs = list(range(len(data)))
+    sns.scatterplot(x=xs, y=data, s=80, color="#3fb950", ax=ax)
+    ax.set_xlabel("Index", fontsize=12)
+    ax.set_ylabel("Value", fontsize=12)
+    ax.set_title("Scatter Plot", fontsize=14, pad=12)
+    fig.tight_layout()
+    return {"image": _fig_to_base64(fig), "title": "Scatter Plot"}
 
 
 # ──────────────────────────────────────────────
 # 4. MEMORY
-# Remember previous problems (stored in browser localStorage by JS).
-# Python provides the data structure.
 # ──────────────────────────────────────────────
 
 def memory_format(problem, answer, confidence):
@@ -208,7 +219,6 @@ def memory_format(problem, answer, confidence):
 
 # ──────────────────────────────────────────────
 # 5. DOUBLE CHECK
-# Verify a solution by re-deriving with sympy independently.
 # ──────────────────────────────────────────────
 
 def double_check(problem, llm_answer):
@@ -220,21 +230,18 @@ def double_check(problem, llm_answer):
         local = {}
         exec(code, local)
         py_answer = str(local.get("_result", ""))
-        # Simple comparison: check if key numbers match
         match = _answers_match(llm_answer, py_answer)
-        return {"verified": match, "python_answer": fmt(py_answer), "llm_answer": llm_answer}
+        return {"verified": match, "python_answer": fmt(py_answer)}
     except Exception as e:
         return {"verified": False, "reason": str(e)}
 
 
 def _answers_match(a, b):
     """Check if two answer strings are numerically equivalent."""
-    # Extract numbers from both
     nums_a = re.findall(r"-?[0-9]+\.?[0-9]*", str(a))
     nums_b = re.findall(r"-?[0-9]+\.?[0-9]*", str(b))
     if not nums_a or not nums_b:
         return str(a).strip() == str(b).strip()
-    # Check if the main numbers match
     try:
         return abs(float(nums_a[0]) - float(nums_b[0])) < 0.01
     except:
@@ -242,53 +249,40 @@ def _answers_match(a, b):
 
 
 # ──────────────────────────────────────────────
-# 6 & 8. THREE AGENTS / MULTI-MODEL DISCUSSION
-# Split into 3 agents with different expertise.
-# Returns prompts for JS to send to the LLM.
+# 6 & 7. THREE AGENTS / MULTI-MODEL DISCUSSION
 # ──────────────────────────────────────────────
 
 def three_agents(problem):
     """Return 3 agent prompts + 1 synthesis prompt for multi-model discussion."""
     agents = [
         {"name": "Agent 1 — Algebra & Calculus",
-         "system": "You are Agent 1, expert in algebra, calculus, and symbolic computation. Respond ONLY in JSON: {\"answer\": str, \"approach\": str, \"confidence\": float, \"concerns\": list}",
+         "system": 'You are Agent 1, expert in algebra, calculus, and symbolic computation. Respond ONLY in JSON: {"answer": str, "approach": str, "confidence": float, "concerns": list}',
          "user": problem},
         {"name": "Agent 2 — Number Theory & Proofs",
-         "system": "You are Agent 2, expert in number theory, combinatorics, and proof writing. Respond ONLY in JSON: {\"answer\": str, \"approach\": str, \"confidence\": float, \"concerns\": list}",
+         "system": 'You are Agent 2, expert in number theory, combinatorics, and proof writing. Respond ONLY in JSON: {"answer": str, "approach": str, "confidence": float, "concerns": list}',
          "user": problem},
         {"name": "Agent 3 — Geometry & Numerics",
-         "system": "You are Agent 3, expert in geometry, topology, and numerical methods. Respond ONLY in JSON: {\"answer\": str, \"approach\": str, \"confidence\": float, \"concerns\": list}",
+         "system": 'You are Agent 3, expert in geometry, topology, and numerical methods. Respond ONLY in JSON: {"answer": str, "approach": str, "confidence": float, "concerns": list}',
          "user": problem},
     ]
     synthesis = {
-        "system": "You are a synthesis agent. Combine expert opinions into one rigorous solution with proofs. Respond ONLY in JSON: {\"answer\": str, \"steps\": [{\"step\": str, \"explanation\": str, \"proof\": str}], \"confidence\": float, \"consensus\": bool}",
-        "user": problem  # JS will append agent responses
+        "system": 'You are a synthesis agent. Combine expert opinions into one rigorous solution with proofs. Respond ONLY in JSON: {"answer": str, "steps": [{"step": str, "explanation": str, "proof": str}], "confidence": float, "consensus": bool}',
+        "user": problem
     }
     return {"agents": agents, "synthesis": synthesis}
 
 
 # ──────────────────────────────────────────────
 # MAIN ENTRY POINT
-# Called by the browser. Returns JSON string.
 # ──────────────────────────────────────────────
 
 def handle(problem):
-    """
-    Main entry point called from the browser via Pyodide.
-    Returns graph data if the problem is a graph/histogram/scatter request.
-    Returns None if no Python skill applies (JS will use LLM only).
-    """
+    """Main entry point called from the browser via Pyodide."""
     result = {"problem": problem}
-
-    # Check for graph request
     graph = present_graph(problem)
     if graph:
-        result["graph_data"] = graph
-
-    # Check for web search query
-    # (JS handles the actual fetch; Python just identifies what to search)
-
-    if "graph_data" in result:
+        result["graph_image"] = graph["image"]
+        result["graph_title"] = graph.get("title", "Graph")
+    if "graph_image" in result:
         return json.dumps(result)
-
     return None

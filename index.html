@@ -4,7 +4,6 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Math AI Agent</title>
-<script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
 <script src="https://cdn.jsdelivr.net/pyodide/v0.26.2/full/pyodide.js"></script>
 <style>
 :root{--bg:#0d1117;--surface:#161b22;--surface2:#21262d;--border:#30363d;--text:#e6edf3;--dim:#8b949e;--accent:#58a6ff;--green:#3fb950;--warn:#d29922;--err:#f85149;--purple:#bc8cff;--radius:10px}
@@ -51,7 +50,8 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
 .conf-fill{height:100%;border-radius:4px;transition:width .5s}
 .conf-fill.h{background:var(--green)}.conf-fill.m{background:var(--warn)}.conf-fill.l{background:var(--err)}
 .conf-lb{font-size:14px;font-weight:600;min-width:120px;text-align:right}
-.graph-container{margin:16px 0;border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;height:400px;width:100%}
+.graph-container{margin:16px 0;border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;width:100%}
+.graph-container img{width:100%;display:block}
 .ag-title{font-size:13px;font-weight:700;color:var(--purple);margin:16px 0 8px}
 .ag-rsp{background:var(--surface2);border-radius:8px;padding:12px 14px;margin-bottom:8px;border-left:3px solid var(--purple)}
 .ag-rsp .an{font-size:12px;font-weight:600;color:var(--purple)}
@@ -142,7 +142,10 @@ async function initPy() {
   py = await loadPyodide();
   await py.loadPackage("sympy");
   await py.loadPackage("numpy");
-  // Load skills.py into Pyodide
+  await py.loadPackage("matplotlib");
+  await py.loadPackage("micropip");
+  // Install seaborn via micropip (pure Python, works in Pyodide)
+  await py.runPythonAsync("import micropip; await micropip.install('seaborn')");
   const res = await fetch("/skills.py");
   py.FS.writeFile("skills.py", await res.text());
   pyReady = true;
@@ -264,7 +267,10 @@ async function send() {
 
     // 2. Get graph data from Python (skills.py)
     const pyResult = await callPython(problem);
-    if (pyResult && pyResult.graph_data) sol.graph_data = pyResult.graph_data;
+    if (pyResult && pyResult.graph_image) {
+      sol.graph_image = pyResult.graph_image;
+      sol.graph_title = pyResult.graph_title;
+    }
 
     // 3. Double-check with Python
     if (sol.answer) {
@@ -350,17 +356,11 @@ function render(sol, bubble) {
   b.innerHTML = `<span style="font-size:13px;color:var(--dim)">Confidence</span><div class="conf-trk"><div class="conf-fill ${cls}" style="width:${pct}%"></div></div><span class="conf-lb">${pct}% — ${lb}</span>`;
   bubble.appendChild(b);
 
-  // Graph
-  if (sol.graph_data) {
-    const g = document.createElement("div"); g.className = "graph-container"; g.id = "g" + Date.now();
+  // Graph (matplotlib + seaborn PNG rendered by Python)
+  if (sol.graph_image) {
+    const g = document.createElement("div"); g.className = "graph-container";
+    g.innerHTML = `<img src="${sol.graph_image}" alt="${sol.graph_title || 'Graph'}">`;
     bubble.appendChild(g);
-    Plotly.newPlot(g, sol.graph_data.traces, {
-      title: sol.graph_data.title || "Graph",
-      xaxis: {title: "x", range: sol.graph_data.x_range || [-10,10]},
-      yaxis: {title: "y"},
-      paper_bgcolor: "transparent", plot_bgcolor: "#161b22",
-      font: {color: "#e6edf3"}, margin: {l:50,r:20,t:40,b:40}, height: 400, autosize: true
-    }, {responsive: true, displayModeBar: false});
   }
 
   // Source link
