@@ -1,19 +1,3 @@
-"""
-skills.py — All math skills for the Math AI Agent.
-
-Skills:
-  1. generate_code      — Generate Python (sympy) code to solve a problem
-  2. search_web          — Search Wikipedia for formulas and theorems
-  3. present_graph       — Create graph, histogram, or scatter plot (matplotlib + seaborn)
-  4. memory              — Remember previous problems (browser localStorage)
-  5. double_check        — Verify a solution by re-deriving independently
-  6. three_agents        — Split into 3 agents for complex problems
-  7. multi_model          — Multi-model discussion prompts
-
-All functions return plain Python dicts/strings.
-Called from the browser via Pyodide — no server needed.
-"""
-
 import re as _re
 import json
 import io
@@ -24,11 +8,14 @@ import numpy as np
 import matplotlib
 matplotlib.use("Agg")  # headless mode for Pyodide
 import matplotlib.pyplot as plt
-import seaborn as sns
+try:
+    import seaborn as sns
+    sns.set_theme(style="darkgrid", palette="muted")
+    HAS_SEABORN = True
+except ImportError:
+    HAS_SEABORN = False
 
 re = _re  # prevent sympy from shadowing the re module
-
-sns.set_theme(style="darkgrid", palette="muted")
 plt.style.use("dark_background")
 
 
@@ -110,15 +97,22 @@ def present_graph(problem):
     """Detect graph/histogram/scatter requests and return a base64 PNG image."""
     p = problem.lower().strip()
 
-    m = re.search(r"graph\s+y\s*=\s*(.+?)\s+from\s+(-?[0-9]+)\s+to\s+(-?[0-9]+)", p)
+    # Multi-graph must be checked BEFORE single graph
+    m = re.search(r"graph\s+y\s*=\s*(.+?)\s+and\s+y\s*=\s*(.+?)\s+from\s+(-?[0-9]+)\s+to\s+(-?[0-9]+)", p)
     if m:
-        return _line_graph(m.group(1).strip(), int(m.group(2)), int(m.group(3)))
-
+        return _line_graph_multi(m.group(1).strip(), m.group(2).strip(),
+                                  int(m.group(3)), int(m.group(4)))
     m = re.search(r"graph\s+(.+?)\s+and\s+(.+?)\s+from\s+(-?[0-9]+)\s+to\s+(-?[0-9]+)", p)
     if m:
         return _line_graph_multi(m.group(1).strip(), m.group(2).strip(),
                                   int(m.group(3)), int(m.group(4)))
 
+    # Single graph with range
+    m = re.search(r"graph\s+y\s*=\s*(.+?)\s+from\s+(-?[0-9]+)\s+to\s+(-?[0-9]+)", p)
+    if m:
+        return _line_graph(m.group(1).strip(), int(m.group(2)), int(m.group(3)))
+
+    # Single graph without range
     m = re.search(r"graph\s+y\s*=\s*(.+)", p)
     if m:
         return _line_graph(m.group(1).strip(), -10, 10)
@@ -145,8 +139,17 @@ def _fig_to_base64(fig):
     return "data:image/png;base64," + base64.b64encode(buf.read()).decode()
 
 
+def _clean_expr(e):
+    """Strip 'y =' or 'y=' prefix from expression."""
+    e = e.strip()
+    if e.lower().startswith("y ="): e = e[3:].strip()
+    elif e.lower().startswith("y="): e = e[2:].strip()
+    return e
+
+
 def _line_graph(expr_str, a, b, pts=400):
     """Line graph using plt.plot + seaborn style."""
+    expr_str = _clean_expr(expr_str)
     x = symbols("x")
     expr = sympify(norm(expr_str))
     f = lambdify(x, expr, "numpy")
@@ -167,6 +170,7 @@ def _line_graph(expr_str, a, b, pts=400):
 
 def _line_graph_multi(e1, e2, a, b, pts=400):
     """Multi-line graph using plt.plot + seaborn palette."""
+    e1, e2 = _clean_expr(e1), _clean_expr(e2)
     x = symbols("x")
     fig, ax = plt.subplots(figsize=(8, 5))
     colors = ["#58a6ff", "#bc8cff"]
@@ -186,9 +190,12 @@ def _line_graph_multi(e1, e2, a, b, pts=400):
 
 
 def _histogram(data):
-    """Histogram using sns.histplot + plt."""
+    """Histogram using sns.histplot + plt (falls back to plt.hist)."""
     fig, ax = plt.subplots(figsize=(8, 5))
-    sns.histplot(data, bins=min(len(data), 15), color="#58a6ff", alpha=0.8, ax=ax)
+    if HAS_SEABORN:
+        sns.histplot(data, bins=min(len(data), 15), color="#58a6ff", alpha=0.8, ax=ax)
+    else:
+        ax.hist(data, bins=min(len(data), 15), color="#58a6ff", alpha=0.8)
     ax.set_xlabel("Value", fontsize=12)
     ax.set_ylabel("Count", fontsize=12)
     ax.set_title("Histogram", fontsize=14, pad=12)
@@ -197,10 +204,13 @@ def _histogram(data):
 
 
 def _scatter(data):
-    """Scatter plot using sns.scatterplot + plt."""
+    """Scatter plot using sns.scatterplot + plt (falls back to plt.scatter)."""
     fig, ax = plt.subplots(figsize=(8, 5))
     xs = list(range(len(data)))
-    sns.scatterplot(x=xs, y=data, s=80, color="#3fb950", ax=ax)
+    if HAS_SEABORN:
+        sns.scatterplot(x=xs, y=data, s=80, color="#3fb950", ax=ax)
+    else:
+        ax.scatter(xs, data, s=80, color="#3fb950")
     ax.set_xlabel("Index", fontsize=12)
     ax.set_ylabel("Value", fontsize=12)
     ax.set_title("Scatter Plot", fontsize=14, pad=12)

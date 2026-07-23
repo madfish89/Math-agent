@@ -144,9 +144,12 @@ async function initPy() {
   await py.loadPackage("numpy");
   await py.loadPackage("matplotlib");
   await py.loadPackage("micropip");
-  // Install seaborn via micropip (pure Python, works in Pyodide)
-  await py.runPythonAsync("import micropip; await micropip.install('seaborn')");
-  const res = await fetch("/skills.py");
+  // Try to install seaborn; if it fails, skills.py falls back to matplotlib only
+  try {
+    await py.runPythonAsync("import micropip; await micropip.install('seaborn')");
+  } catch(e) { console.warn("seaborn install failed, using matplotlib only:", e.message); }
+  const res = await fetch("skills.py");
+  if (!res.ok) throw new Error("Could not load skills.py");
   py.FS.writeFile("skills.py", await res.text());
   pyReady = true;
 }
