@@ -8,6 +8,7 @@ import numpy as np
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D
 
 re = _re
 plt.style.use("dark_background")
@@ -73,6 +74,64 @@ def generate_code(problem):
     if m: return f"from sympy import *\n_result = str(binomial({m.group(1)}, {m.group(2)}))"
     m = re.search(r"factorial\s+of\s+([0-9]+)|([0-9]+)!", p)
     if m: return f"from sympy import *\n_result = str(factorial({m.group(1) or m.group(2)}))"
+
+    # ── Matrix operations ──
+    m = re.search(r"determinant\s+of\s+(\[\[.*?\]\])", p)
+    if m:
+        mat = m.group(1)
+        return f"from sympy import *\n_result = str(Matrix({mat}).det())"
+    m = re.search(r"inverse\s+of\s+(\[\[.*?\]\])", p)
+    if m:
+        mat = m.group(1)
+        return f"from sympy import *\n_result = str(Matrix({mat}).inv())"
+    m = re.search(r"transpose\s+of\s+(\[\[.*?\]\])", p)
+    if m:
+        mat = m.group(1)
+        return f"from sympy import *\n_result = str(Matrix({mat}).T)"
+
+    # ── Taylor series ──
+    m = re.search(r"taylor\s+series\s+of\s+(.+?)\s+around\s+(\S+)\s+order\s+(\d+)", p)
+    if m:
+        e = norm(m.group(1).strip())
+        pt = m.group(2).strip()
+        n = m.group(3).strip()
+        return f"from sympy import *\nx = symbols('x')\n_result = str(series(sympify('{e}'), x, sympify('{pt}'), {int(n)+1}).removeO())"
+
+    # ── Differential equations ──
+    m = re.search(r"(?:solve\s+ode|differential\s+equation)\s+(.+)", p)
+    if m:
+        eq = norm(m.group(1).strip())
+        if "=" in eq: eq = f"Eq({eq.split('=')[0]},{eq.split('=')[1]})"
+        return f"from sympy import *\nx = symbols('x'); y = Function('y')\n_result = str(dsolve(sympify('{eq}'), y(x)))"
+
+    # ── Statistics ──
+    m = re.search(r"mean\s+of\s+\[([^\]]+)\]", p)
+    if m:
+        return f"from statistics import mean as _mean\n_result = str(_mean([{m.group(1)}]))"
+    m = re.search(r"median\s+of\s+\[([^\]]+)\]", p)
+    if m:
+        return f"from statistics import median as _med\n_result = str(_med([{m.group(1)}]))"
+    m = re.search(r"std\s+of\s+\[([^\]]+)\]|standard\s+deviation\s+of\s+\[([^\]]+)\]", p)
+    if m:
+        nums = m.group(1) or m.group(2)
+        return f"from statistics import stdev as _std\n_result = str(_std([{nums}]))"
+    m = re.search(r"variance\s+of\s+\[([^\]]+)\]", p)
+    if m:
+        return f"from statistics import variance as _var\n_result = str(_var([{m.group(1)}]))"
+
+    # ── Permutations ──
+    m = re.search(r"(\d+)\s+permutations?\s+of\s+(\d+)", p)
+    if m:
+        return f"from sympy import *\n_result = str(binomial({m.group(1)}, {m.group(2)}) * factorial({m.group(2)}))"
+
+    # ── Limits ──
+    m = re.search(r"limit\s+of\s+(.+?)\s+as\s+(\w+)\s+approaches\s+(\S+)", p)
+    if m:
+        e = norm(m.group(1).strip())
+        var = m.group(2).strip()
+        val = m.group(3).strip()
+        return f"from sympy import *\n{var} = symbols('{var}')\n_result = str(limit(sympify('{e}'), {var}, sympify('{val}')))"
+
     return None
 
 
@@ -91,6 +150,27 @@ def search_web(theorem):
 
 def present_graph(problem):
     p = problem.lower().strip()
+
+    # ── 3D graphs (before 2D) ──
+    m = re.search(r"(?:3d\s+graph|surface\s+plot)\s+z\s*=\s*(.+?)(?:\s+from\s+(-?[0-9]+)\s+to\s+(-?[0-9]+))?\s*$", p)
+    if m:
+        expr = m.group(1).strip()
+        a = int(m.group(2)) if m.group(2) else -5
+        b = int(m.group(3)) if m.group(3) else 5
+        return _surface(expr, a, b)
+
+    m = re.search(r"parametric\s+3d\s+x\s*=\s*(.+?)\s+y\s*=\s*(.+?)\s+z\s*=\s*(.+?)(?:\s+from\s+(-?[0-9]+)\s+to\s+(-?[0-9]+))?\s*$", p)
+    if m:
+        return _parametric3d(m.group(1).strip(), m.group(2).strip(), m.group(3).strip(),
+                             int(m.group(4)) if m.group(4) else -5,
+                             int(m.group(5)) if m.group(5) else 5)
+
+    m = re.search(r"contour\s+plot\s+of\s+z\s*=\s*(.+?)(?:\s+from\s+(-?[0-9]+)\s+to\s+(-?[0-9]+))?\s*$", p)
+    if m:
+        expr = m.group(1).strip()
+        a = int(m.group(2)) if m.group(2) else -5
+        b = int(m.group(3)) if m.group(3) else 5
+        return _contour(expr, a, b)
 
     # Multi-graph first
     m = re.search(r"graph\s+y\s*=\s*(.+?)\s+and\s+y\s*=\s*(.+?)\s+from\s+(-?[0-9]+)\s+to\s+(-?[0-9]+)", p)
@@ -213,6 +293,73 @@ def _scatter(data):
     for spine in ax.spines.values(): spine.set_color(C_GRID)
     fig.tight_layout()
     return {"image": _fig_b64(fig), "title": "Scatter Plot"}
+
+
+def _surface(expr_str, a, b, pts=80):
+    x, y = symbols("x y")
+    expr = sympify(norm(expr_str))
+    f = lambdify((x, y), expr, "numpy")
+    xv = np.linspace(a, b, pts)
+    yv = np.linspace(a, b, pts)
+    X, Y = np.meshgrid(xv, yv)
+    Z = f(X, Y)
+    if not isinstance(Z, np.ndarray):
+        Z = np.full_like(X, float(Z))
+    fig = plt.figure(figsize=(9, 7))
+    ax = fig.add_subplot(111, projection="3d")
+    ax.plot_surface(X, Y, Z, cmap="viridis", edgecolor="none", alpha=0.9)
+    ax.set_xlabel("x", fontsize=11, color="#e6edf3")
+    ax.set_ylabel("y", fontsize=11, color="#e6edf3")
+    ax.set_zlabel("z", fontsize=11, color="#e6edf3")
+    ax.set_title(f"z = {expr_str}", fontsize=14, pad=12, color="#e6edf3")
+    ax.tick_params(colors="#8b949e")
+    fig.tight_layout()
+    return {"image": _fig_b64(fig), "title": f"3D Surface: z = {expr_str}"}
+
+
+def _parametric3d(ex_str, ey_str, ez_str, a, b, pts=400):
+    t = symbols("t")
+    ex = sympify(norm(ex_str))
+    ey = sympify(norm(ey_str))
+    ez = sympify(norm(ez_str))
+    fx = lambdify(t, ex, "numpy")
+    fy = lambdify(t, ey, "numpy")
+    fz = lambdify(t, ez, "numpy")
+    tv = np.linspace(a, b, pts)
+    fig = plt.figure(figsize=(9, 7))
+    ax = fig.add_subplot(111, projection="3d")
+    ax.plot(fx(tv), fy(tv), fz(tv), color=C_BLUE, linewidth=2.5)
+    ax.set_xlabel("x", fontsize=11, color="#e6edf3")
+    ax.set_ylabel("y", fontsize=11, color="#e6edf3")
+    ax.set_zlabel("z", fontsize=11, color="#e6edf3")
+    ax.set_title("Parametric 3D Curve", fontsize=14, pad=12, color="#e6edf3")
+    ax.tick_params(colors="#8b949e")
+    fig.tight_layout()
+    return {"image": _fig_b64(fig), "title": "Parametric 3D Curve"}
+
+
+def _contour(expr_str, a, b, pts=100):
+    x, y = symbols("x y")
+    expr = sympify(norm(expr_str))
+    f = lambdify((x, y), expr, "numpy")
+    xv = np.linspace(a, b, pts)
+    yv = np.linspace(a, b, pts)
+    X, Y = np.meshgrid(xv, yv)
+    Z = f(X, Y)
+    if not isinstance(Z, np.ndarray):
+        Z = np.full_like(X, float(Z))
+    fig, ax = plt.subplots(figsize=(9, 7))
+    cs = ax.contourf(X, Y, Z, levels=20, cmap="viridis")
+    fig.colorbar(cs, ax=ax, label="z")
+    ax.set_xlabel("x", fontsize=13, color="#e6edf3")
+    ax.set_ylabel("y", fontsize=13, color="#e6edf3")
+    ax.set_title(f"Contour: z = {expr_str}", fontsize=15, pad=12, color="#e6edf3")
+    ax.grid(True, color=C_GRID, alpha=0.3)
+    ax.set_facecolor(C_BG)
+    ax.tick_params(colors="#8b949e")
+    for spine in ax.spines.values(): spine.set_color(C_GRID)
+    fig.tight_layout()
+    return {"image": _fig_b64(fig), "title": f"Contour: z = {expr_str}"}
 
 
 # ──────────────────────────────────────────────

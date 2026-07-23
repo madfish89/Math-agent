@@ -99,6 +99,41 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
 .py-loading{position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px 16px;font-size:13px;color:var(--dim);z-index:500;opacity:0;transition:opacity .3s;pointer-events:none}
 .py-loading.show{opacity:1}
 .py-loading .sp{width:14px;height:14px;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite;display:inline-block;margin-right:8px;vertical-align:middle}
+/* Model selector */
+.model-select{width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);padding:10px 12px;font-size:13px;cursor:pointer;transition:.2s;margin-top:8px}
+.model-select:focus{outline:none;border-color:var(--accent)}
+.model-select option{background:var(--surface2);color:var(--text)}
+/* Memory panel */
+.mem-item{background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin-bottom:8px;cursor:pointer;transition:.2s;font-size:13px;color:var(--dim)}
+.mem-item:hover{border-color:var(--accent);color:var(--text)}
+.mem-item .mp{font-weight:600;color:var(--text);font-size:13px;line-height:1.4;margin-bottom:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mem-item .ma{font-size:12px;color:var(--green)}
+.mem-empty{font-size:12px;color:var(--dim);font-style:italic}
+/* Clear chat button */
+.clear-btn{width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);color:var(--dim);padding:10px 14px;font-size:13px;font-weight:600;cursor:pointer;transition:.2s;margin-top:8px}
+.clear-btn:hover{border-color:var(--err);color:var(--err);background:rgba(248,81,73,.05)}
+/* Example hints */
+.example-hints{margin-top:20px;display:flex;flex-direction:column;gap:10px;align-items:center}
+.example-hint{background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);padding:10px 16px;font-size:13px;color:var(--accent);cursor:pointer;transition:.2s;max-width:500px;text-align:center}
+.example-hint:hover{border-color:var(--accent);background:rgba(88,166,255,.05)}
+.example-hint::before{content:"💡 ";font-size:14px}
+/* Loading progress */
+.loading-progress{font-size:12px;color:var(--dim);margin-top:8px;text-align:center}
+.loading-progress .step{display:inline-block;transition:.3s}
+.loading-progress .step.active{color:var(--accent);font-weight:600}
+.loading-progress .step.done{color:var(--green)}
+.loading-progress .arrow{color:var(--border);margin:0 4px}
+/* Proof callout collapsible */
+.proof-callout{cursor:pointer;user-select:none}
+.proof-callout .proof-toggle{font-size:11px;color:var(--warn);margin-left:6px;opacity:.7}
+.proof-callout.collapsed .proof-content{display:none}
+.proof-content{margin-top:6px}
+/* Desmos modal larger */
+.desmos-modal-inner{background:var(--surface);border-radius:16px;padding:20px;width:95vw;max-width:none;height:90vh;display:flex;flex-direction:column}
+.desmos-send-btn{background:var(--accent);color:#fff;border:none;border-radius:8px;padding:6px 14px;cursor:pointer;font-size:13px;font-weight:600;transition:.2s;white-space:nowrap}
+.desmos-send-btn:hover{background:#4c9aef}
+.desmos-expr-input{background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);padding:6px 12px;font-size:13px;font-family:'SF Mono',monospace;width:300px}
+.desmos-expr-input:focus{outline:none;border-color:var(--accent)}
 @media(max-width:800px){.sidebar{display:none}}
 </style>
 </head>
@@ -124,12 +159,28 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
 <div class="conn-status" id="connStatus"><span class="dot"></span><span id="connLabel">Not connected</span></div>
 </div>
 <div class="sb-section">
+<h3>Model</h3>
+<select class="model-select" id="modelSelect">
+<option value="gpt-4o-mini" selected>gpt-4o-mini (default)</option>
+<option value="gpt-4o">gpt-4o</option>
+<option value="gpt-4-turbo">gpt-4-turbo</option>
+</select>
+</div>
+<div class="sb-section">
 <h3>Multi-Agent Mode</h3>
 <button class="toggle-btn" id="multiToggle"><span class="ic">👥</span><div><div style="font-weight:600">3-Agent Discussion</div><div style="font-size:11px;color:var(--dim);margin-top:2px">Three agents solve independently, then compare</div></div><span class="ck">✓</span></button>
 </div>
 <div class="sb-section">
 <h3>Desmos Calculator</h3>
 <button class="toggle-btn" id="desmosToggle"><span class="ic">📊</span><div><div style="font-weight:600">Open Desmos</div><div style="font-size:11px;color:var(--dim);margin-top:2px">Interactive graphing calculator</div></div><span class="ck">✓</span></button>
+</div>
+<div class="sb-section">
+<h3>Memory</h3>
+<div id="memoryPanel"><div class="mem-empty">No solved problems yet.</div></div>
+</div>
+<div class="sb-section">
+<h3>Chat</h3>
+<button class="clear-btn" id="clearChatBtn" onclick="clearChat()">🗑 Clear Chat</button>
 </div>
 <div class="sb-section">
 <h3>How It Works</h3>
@@ -149,10 +200,10 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
 <p>A math-solving AI powered by GPT-4o-mini with step-by-step proofs, Python-generated graphs (matplotlib), answer verification, Desmos calculator integration, and multi-agent discussion mode for complex problems.</p>
 </div>
 <div class="chat" id="chat">
-<div class="empty" id="empty"><div class="big">🧮</div><div>Type a math problem below to get started.</div></div>
+<div class="empty" id="empty"><div class="big">🧮</div><div>Type a math problem below to get started.</div><div class="example-hints"><div class="example-hint" onclick="useExample(this)">Try: 3d graph z = sin(x)+cos(y) from -3 to 3</div><div class="example-hint" onclick="useExample(this)">Find the derivative of x^2 + 3x</div></div></div>
 </div>
 <div class="input-bar"><div class="input-ctn">
-<textarea id="input" placeholder="Type a math problem..." rows="1" disabled></textarea>
+<textarea id="input" placeholder="Type a math problem... (Cmd+Enter to submit)" rows="1" disabled></textarea>
 <div class="multi-toggle" id="multiBtn" onclick="toggleMulti()"><span class="dot"></span> 👥</div>
 <button class="send-btn" id="btn" onclick="send()" disabled>➤ Solve</button>
 </div></div>
@@ -162,8 +213,8 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
 <div class="py-loading" id="pyLoading"><span class="sp"></span> Loading Python for first use...</div>
 
 <div id="desmosModal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;z-index:999;background:rgba(0,0,0,.7);align-items:center;justify-content:center">
-<div style="background:var(--surface);border-radius:16px;padding:20px;width:90%;max-width:900px;height:85vh;display:flex;flex-direction:column">
-<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px"><h3 style="font-size:16px">Desmos Calculator</h3><button onclick="closeDesmos()" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:6px 12px;cursor:pointer">Close</button></div>
+<div class="desmos-modal-inner">
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;gap:12px"><h3 style="font-size:16px">Desmos Calculator</h3><div style="display:flex;gap:8px;align-items:center"><input class="desmos-expr-input" id="desmosExprInput" placeholder="Enter expression e.g. y=x^2"><button class="desmos-send-btn" onclick="sendToDesmos()">Send to Desmos</button><button onclick="closeDesmos()" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:6px 12px;cursor:pointer">Close</button></div></div>
 <div id="desmosCalc" style="flex:1;border-radius:8px;overflow:hidden"></div>
 </div>
 </div>
@@ -179,6 +230,7 @@ import numpy as np
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D
 
 re = _re
 plt.style.use("dark_background")
@@ -244,6 +296,64 @@ def generate_code(problem):
     if m: return f"from sympy import *\\n_result = str(binomial({m.group(1)}, {m.group(2)}))"
     m = re.search(r"factorial\\s+of\\s+([0-9]+)|([0-9]+)!", p)
     if m: return f"from sympy import *\\n_result = str(factorial({m.group(1) or m.group(2)}))"
+
+    # ── Matrix operations ──
+    m = re.search(r"determinant\\s+of\\s+(\\[\\[.*?\\]\\])", p)
+    if m:
+        mat = m.group(1)
+        return f"from sympy import *\\n_result = str(Matrix({mat}).det())"
+    m = re.search(r"inverse\\s+of\\s+(\\[\\[.*?\\]\\])", p)
+    if m:
+        mat = m.group(1)
+        return f"from sympy import *\\n_result = str(Matrix({mat}).inv())"
+    m = re.search(r"transpose\\s+of\\s+(\\[\\[.*?\\]\\])", p)
+    if m:
+        mat = m.group(1)
+        return f"from sympy import *\\n_result = str(Matrix({mat}).T)"
+
+    # ── Taylor series ──
+    m = re.search(r"taylor\\s+series\\s+of\\s+(.+?)\\s+around\\s+(\\S+)\\s+order\\s+(\\d+)", p)
+    if m:
+        e = norm(m.group(1).strip())
+        pt = m.group(2).strip()
+        n = m.group(3).strip()
+        return f"from sympy import *\\nx = symbols('x')\\n_result = str(series(sympify('{e}'), x, sympify('{pt}'), {int(n)+1}).removeO())"
+
+    # ── Differential equations ──
+    m = re.search(r"(?:solve\\s+ode|differential\\s+equation)\\s+(.+)", p)
+    if m:
+        eq = norm(m.group(1).strip())
+        if "=" in eq: eq = f"Eq({eq.split('=')[0]},{eq.split('=')[1]})"
+        return f"from sympy import *\\nx = symbols('x'); y = Function('y')\\n_result = str(dsolve(sympify('{eq}'), y(x)))"
+
+    # ── Statistics ──
+    m = re.search(r"mean\\s+of\\s+\\[([^\\]]+)\\]", p)
+    if m:
+        return f"from statistics import mean as _mean\\n_result = str(_mean([{m.group(1)}]))"
+    m = re.search(r"median\\s+of\\s+\\[([^\\]]+)\\]", p)
+    if m:
+        return f"from statistics import median as _med\\n_result = str(_med([{m.group(1)}]))"
+    m = re.search(r"std\\s+of\\s+\\[([^\\]]+)\\]|standard\\s+deviation\\s+of\\s+\\[([^\\]]+)\\]", p)
+    if m:
+        nums = m.group(1) or m.group(2)
+        return f"from statistics import stdev as _std\\n_result = str(_std([{nums}]))"
+    m = re.search(r"variance\\s+of\\s+\\[([^\\]]+)\\]", p)
+    if m:
+        return f"from statistics import variance as _var\\n_result = str(_var([{m.group(1)}]))"
+
+    # ── Permutations ──
+    m = re.search(r"(\\d+)\\s+permutations?\\s+of\\s+(\\d+)", p)
+    if m:
+        return f"from sympy import *\\n_result = str(binomial({m.group(1)}, {m.group(2)}) * factorial({m.group(2)}))"
+
+    # ── Limits ──
+    m = re.search(r"limit\\s+of\\s+(.+?)\\s+as\\s+(\\w+)\\s+approaches\\s+(\\S+)", p)
+    if m:
+        e = norm(m.group(1).strip())
+        var = m.group(2).strip()
+        val = m.group(3).strip()
+        return f"from sympy import *\\n{var} = symbols('{var}')\\n_result = str(limit(sympify('{e}'), {var}, sympify('{val}')))"
+
     return None
 
 
@@ -262,6 +372,27 @@ def search_web(theorem):
 
 def present_graph(problem):
     p = problem.lower().strip()
+
+    # ── 3D graphs (before 2D) ──
+    m = re.search(r"(?:3d\\s+graph|surface\\s+plot)\\s+z\\s*=\\s*(.+?)(?:\\s+from\\s+(-?[0-9]+)\\s+to\\s+(-?[0-9]+))?\\s*$", p)
+    if m:
+        expr = m.group(1).strip()
+        a = int(m.group(2)) if m.group(2) else -5
+        b = int(m.group(3)) if m.group(3) else 5
+        return _surface(expr, a, b)
+
+    m = re.search(r"parametric\\s+3d\\s+x\\s*=\\s*(.+?)\\s+y\\s*=\\s*(.+?)\\s+z\\s*=\\s*(.+?)(?:\\s+from\\s+(-?[0-9]+)\\s+to\\s+(-?[0-9]+))?\\s*$", p)
+    if m:
+        return _parametric3d(m.group(1).strip(), m.group(2).strip(), m.group(3).strip(),
+                             int(m.group(4)) if m.group(4) else -5,
+                             int(m.group(5)) if m.group(5) else 5)
+
+    m = re.search(r"contour\\s+plot\\s+of\\s+z\\s*=\\s*(.+?)(?:\\s+from\\s+(-?[0-9]+)\\s+to\\s+(-?[0-9]+))?\\s*$", p)
+    if m:
+        expr = m.group(1).strip()
+        a = int(m.group(2)) if m.group(2) else -5
+        b = int(m.group(3)) if m.group(3) else 5
+        return _contour(expr, a, b)
 
     # Multi-graph first
     m = re.search(r"graph\\s+y\\s*=\\s*(.+?)\\s+and\\s+y\\s*=\\s*(.+?)\\s+from\\s+(-?[0-9]+)\\s+to\\s+(-?[0-9]+)", p)
@@ -386,6 +517,73 @@ def _scatter(data):
     return {"image": _fig_b64(fig), "title": "Scatter Plot"}
 
 
+def _surface(expr_str, a, b, pts=80):
+    x, y = symbols("x y")
+    expr = sympify(norm(expr_str))
+    f = lambdify((x, y), expr, "numpy")
+    xv = np.linspace(a, b, pts)
+    yv = np.linspace(a, b, pts)
+    X, Y = np.meshgrid(xv, yv)
+    Z = f(X, Y)
+    if not isinstance(Z, np.ndarray):
+        Z = np.full_like(X, float(Z))
+    fig = plt.figure(figsize=(9, 7))
+    ax = fig.add_subplot(111, projection="3d")
+    ax.plot_surface(X, Y, Z, cmap="viridis", edgecolor="none", alpha=0.9)
+    ax.set_xlabel("x", fontsize=11, color="#e6edf3")
+    ax.set_ylabel("y", fontsize=11, color="#e6edf3")
+    ax.set_zlabel("z", fontsize=11, color="#e6edf3")
+    ax.set_title(f"z = {expr_str}", fontsize=14, pad=12, color="#e6edf3")
+    ax.tick_params(colors="#8b949e")
+    fig.tight_layout()
+    return {"image": _fig_b64(fig), "title": f"3D Surface: z = {expr_str}"}
+
+
+def _parametric3d(ex_str, ey_str, ez_str, a, b, pts=400):
+    t = symbols("t")
+    ex = sympify(norm(ex_str))
+    ey = sympify(norm(ey_str))
+    ez = sympify(norm(ez_str))
+    fx = lambdify(t, ex, "numpy")
+    fy = lambdify(t, ey, "numpy")
+    fz = lambdify(t, ez, "numpy")
+    tv = np.linspace(a, b, pts)
+    fig = plt.figure(figsize=(9, 7))
+    ax = fig.add_subplot(111, projection="3d")
+    ax.plot(fx(tv), fy(tv), fz(tv), color=C_BLUE, linewidth=2.5)
+    ax.set_xlabel("x", fontsize=11, color="#e6edf3")
+    ax.set_ylabel("y", fontsize=11, color="#e6edf3")
+    ax.set_zlabel("z", fontsize=11, color="#e6edf3")
+    ax.set_title("Parametric 3D Curve", fontsize=14, pad=12, color="#e6edf3")
+    ax.tick_params(colors="#8b949e")
+    fig.tight_layout()
+    return {"image": _fig_b64(fig), "title": "Parametric 3D Curve"}
+
+
+def _contour(expr_str, a, b, pts=100):
+    x, y = symbols("x y")
+    expr = sympify(norm(expr_str))
+    f = lambdify((x, y), expr, "numpy")
+    xv = np.linspace(a, b, pts)
+    yv = np.linspace(a, b, pts)
+    X, Y = np.meshgrid(xv, yv)
+    Z = f(X, Y)
+    if not isinstance(Z, np.ndarray):
+        Z = np.full_like(X, float(Z))
+    fig, ax = plt.subplots(figsize=(9, 7))
+    cs = ax.contourf(X, Y, Z, levels=20, cmap="viridis")
+    fig.colorbar(cs, ax=ax, label="z")
+    ax.set_xlabel("x", fontsize=13, color="#e6edf3")
+    ax.set_ylabel("y", fontsize=13, color="#e6edf3")
+    ax.set_title(f"Contour: z = {expr_str}", fontsize=15, pad=12, color="#e6edf3")
+    ax.grid(True, color=C_GRID, alpha=0.3)
+    ax.set_facecolor(C_BG)
+    ax.tick_params(colors="#8b949e")
+    for spine in ax.spines.values(): spine.set_color(C_GRID)
+    fig.tight_layout()
+    return {"image": _fig_b64(fig), "title": f"Contour: z = {expr_str}"}
+
+
 # ──────────────────────────────────────────────
 # 4. MEMORY
 # ──────────────────────────────────────────────
@@ -459,7 +657,7 @@ def handle(problem):
     if "graph_image" in result:
         return json.dumps(result)
     return None`;
-const MODEL = "gpt-4o-mini";
+let MODEL = "gpt-4o-mini";
 let busy = false, pyReady = false, multiAgent = false;
 
 function unlock() {
@@ -472,6 +670,7 @@ function unlock() {
   document.getElementById("input").disabled = false;
   document.getElementById("btn").disabled = false;
   updateConnStatus();
+  refreshMemory();
   setTimeout(() => { document.getElementById("input").focus(); }, 100);
 }
 document.getElementById("lockKey").addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); unlock(); }});
@@ -482,6 +681,11 @@ function updateConnStatus() {
   if (getKey()) { s.classList.add("ok"); l.textContent = "Connected"; }
   else { s.classList.remove("ok"); l.textContent = "Not connected"; }
 }
+
+/* Model selector */
+document.getElementById("modelSelect").addEventListener("change", e => {
+  MODEL = e.target.value;
+});
 
 async function initPy() {
   if (pyReady) return;
@@ -553,6 +757,7 @@ async function searchWeb(query) {
   } catch(e) { return null; }
 }
 
+/* Desmos */
 let desmosCalc = null;
 function openDesmos() {
   const modal = document.getElementById("desmosModal");
@@ -561,6 +766,14 @@ function openDesmos() {
 }
 function closeDesmos() { document.getElementById("desmosModal").style.display = "none"; }
 document.getElementById("desmosToggle").onclick = openDesmos;
+
+function sendToDesmos() {
+  if (!desmosCalc) return;
+  const expr = document.getElementById("desmosExprInput").value.trim();
+  if (!expr) return;
+  desmosCalc.setExpression({ latex: expr });
+  document.getElementById("desmosExprInput").value = "";
+}
 
 function esc(s) { const d = document.createElement("div"); d.textContent = s; return d.innerHTML; }
 function toggleMulti() {
@@ -571,11 +784,69 @@ function toggleMulti() {
 document.getElementById("multiToggle").onclick = toggleMulti;
 const inp = document.getElementById("input");
 inp.addEventListener("input", () => { inp.style.height = "auto"; inp.style.height = Math.min(inp.scrollHeight,120)+"px"; });
-inp.addEventListener("keydown", e => { if (e.key==="Enter"&&!e.shiftKey) { e.preventDefault(); send(); }});
+/* Cmd+Enter / Ctrl+Enter to submit */
+inp.addEventListener("keydown", e => { if (e.key==="Enter"&&(e.metaKey||e.ctrlKey)) { e.preventDefault(); send(); } else if (e.key==="Enter"&&!e.shiftKey) { e.preventDefault(); send(); }});
 document.getElementById("apiKey").addEventListener("input", updateConnStatus);
 
+/* Example hints */
+function useExample(el) {
+  inp.value = el.textContent.replace(/^Try:\s*/, "");
+  inp.focus();
+  inp.style.height = "auto";
+  inp.style.height = Math.min(inp.scrollHeight,120)+"px";
+}
+
+/* Memory panel */
 function loadMem() { return JSON.parse(localStorage.getItem("mathMemory")||"[]"); }
 function saveMem(data) { localStorage.setItem("mathMemory", JSON.stringify(data)); }
+
+function refreshMemory() {
+  const panel = document.getElementById("memoryPanel");
+  if (!panel) return;
+  const mem = loadMem().slice(-5).reverse();
+  if (mem.length === 0) {
+    panel.innerHTML = '<div class="mem-empty">No solved problems yet.</div>';
+    return;
+  }
+  panel.innerHTML = "";
+  mem.forEach((item, i) => {
+    const el = document.createElement("div");
+    el.className = "mem-item";
+    const ans = item.answer ? String(item.answer).slice(0, 60) : "";
+    el.innerHTML = `<div class="mp">${esc(item.problem||"")}</div><div class="ma">→ ${esc(ans)}</div>`;
+    el.onclick = () => {
+      inp.value = item.problem;
+      inp.focus();
+      inp.style.height = "auto";
+      inp.style.height = Math.min(inp.scrollHeight,120)+"px";
+    };
+    panel.appendChild(el);
+  });
+}
+
+/* Clear chat */
+function clearChat() {
+  const chat = document.getElementById("chat");
+  chat.innerHTML = '<div class="empty" id="empty"><div class="big">🧮</div><div>Type a math problem below to get started.</div><div class="example-hints"><div class="example-hint" onclick="useExample(this)">Try: 3d graph z = sin(x)+cos(y) from -3 to 3</div><div class="example-hint" onclick="useExample(this)">Find the derivative of x^2 + 3x</div></div></div>';
+}
+
+/* Loading progress steps */
+function setLoadingStep(ld, stepIdx) {
+  const steps = multiAgent
+    ? ["Asking agents...", "Generating graph...", "Double-checking...", "Done"]
+    : [`Asking ${MODEL}...`, "Generating graph...", "Double-checking...", "Done"];
+  const stepEls = ld.querySelectorAll(".step");
+  stepEls.forEach((el, i) => {
+    el.classList.remove("active", "done");
+    if (i < stepIdx) el.classList.add("done");
+    if (i === stepIdx) el.classList.add("active");
+  });
+  // Update the label text
+  if (stepIdx < steps.length) {
+    const label = ld.querySelector(".loading-label");
+    if (label) label.textContent = steps[stepIdx];
+  }
+}
 
 async function send() {
   const problem = inp.value.trim();
@@ -589,14 +860,30 @@ async function send() {
   const a = document.createElement("div"); a.className = "msg agent";
   const bubble = document.createElement("div"); bubble.className = "b";
   a.appendChild(bubble); document.getElementById("chat").appendChild(a);
+
+  /* Loading with progress steps */
   const ld = document.createElement("div"); ld.className = "loading";
-  ld.innerHTML = `<div class="sp"></div>${multiAgent ? "3 agents discussing..." : "Asking GPT-4o-mini..."}`;
+  const stepsLabels = multiAgent
+    ? ["Asking agents...", "Generating graph...", "Double-checking...", "Done"]
+    : [`Asking ${MODEL}...`, "Generating graph...", "Double-checking...", "Done"];
+  let progressHTML = '<div class="sp"></div><div class="loading-label">' + esc(stepsLabels[0]) + '</div>';
+  progressHTML += '<div class="loading-progress">';
+  stepsLabels.forEach((s, i) => {
+    if (i > 0) progressHTML += '<span class="arrow">→</span>';
+    progressHTML += `<span class="step${i===0?' active':''}">${esc(s)}</span>`;
+  });
+  progressHTML += '</div>';
+  ld.innerHTML = progressHTML;
   bubble.appendChild(ld);
+
   try {
+    setLoadingStep(ld, 0);
     const sol = multiAgent ? await multiAgentSolve(problem) : await llmSolve(problem);
+    setLoadingStep(ld, 1);
     const pyResult = await callPython(problem);
     if (pyResult && pyResult.graph_image) { sol.graph_image = pyResult.graph_image; sol.graph_title = pyResult.graph_title; }
     if (sol.answer) {
+      setLoadingStep(ld, 2);
       try {
         const checkRaw = await py.runPythonAsync(`import skills, json; json.dumps(skills.double_check(${JSON.stringify(problem)}, ${JSON.stringify(sol.answer)}))`);
         const check = JSON.parse(checkRaw);
@@ -607,8 +894,10 @@ async function send() {
       const theorem = sol.steps[0].proof.split(":")[0].split("—")[0].trim();
       if (theorem.length > 3) { const wiki = await searchWeb(theorem); if (wiki) sol.source = wiki; }
     }
+    setLoadingStep(ld, 3);
     ld.remove(); render(sol, bubble);
     const mem = loadMem(); mem.push({problem, answer: sol.answer, confidence: sol.confidence, ts: Date.now()}); saveMem(mem);
+    refreshMemory();
   } catch(e) { ld.remove(); bubble.innerHTML = `<div class="err">${esc(e.message)}</div>`; }
   busy = false; document.getElementById("btn").disabled = false;
   document.getElementById("chat").scrollTop = 99999;
@@ -617,7 +906,15 @@ async function send() {
 function render(sol, bubble) {
   if (sol.answer) { const a = document.createElement("div"); a.className = "ans-box"; a.innerHTML = `<div class="lb">Answer</div><div class="vl">${esc(sol.answer)}</div>`; bubble.appendChild(a); }
   if (sol.verified !== undefined) { const v = document.createElement("div"); v.className = "verify-badge " + (sol.verified ? "ok" : "no"); v.textContent = sol.verified ? "✓ Double-checked with Python" : "⚠ Python got a different answer"; if (sol.python_answer) v.textContent += ` (Python: ${esc(sol.python_answer)})`; bubble.appendChild(v); }
-  if (sol.steps && sol.steps.length) { const t = document.createElement("div"); t.className = "steps-title"; t.textContent = "Steps"; bubble.appendChild(t); sol.steps.forEach((s, i) => { const e = document.createElement("div"); e.className = "step-it"; e.innerHTML = `<div class="sn">Step ${i+1}</div><div class="sc">${esc(s.step||"")}</div>${s.explanation?`<div class="se">${esc(s.explanation)}</div>`:""}${s.proof?`<div class="sp">📐 ${esc(s.proof)}</div>`:""}`; bubble.appendChild(e); }); }
+  if (sol.steps && sol.steps.length) { const t = document.createElement("div"); t.className = "steps-title"; t.textContent = "Steps"; bubble.appendChild(t); sol.steps.forEach((s, i) => {
+    const e = document.createElement("div"); e.className = "step-it";
+    let inner = `<div class="sn">Step ${i+1}</div><div class="sc">${esc(s.step||"")}</div>`;
+    if (s.explanation) inner += `<div class="se">${esc(s.explanation)}</div>`;
+    if (s.proof) {
+      inner += `<div class="sp proof-callout collapsed" onclick="this.classList.toggle('collapsed')"><span>📐 Proof</span><span class="proof-toggle">[click to expand]</span><div class="proof-content" style="margin-top:6px">${esc(s.proof)}</div></div>`;
+    }
+    e.innerHTML = inner; bubble.appendChild(e);
+  }); }
   if (sol.agents) { const t = document.createElement("div"); t.className = "ag-title"; t.textContent = "👥 Agent Discussion"; bubble.appendChild(t); for (const [name, resp] of Object.entries(sol.agents)) { const e = document.createElement("div"); e.className = "ag-rsp"; e.innerHTML = `<div class="an">${esc(name)}</div><div class="aa">${esc(String(resp.answer||resp.raw||"").slice(0,200))}</div>`; bubble.appendChild(e); } }
   const pct = Math.round((sol.confidence || 0.8) * 100);
   const cls = pct >= 70 ? "h" : pct >= 40 ? "m" : "l";
