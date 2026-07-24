@@ -688,7 +688,7 @@ def three_agents(problem):
          "user": problem},
     ]
     synthesis = {
-        "system": 'You are a synthesis agent. Combine expert opinions into one rigorous solution with proofs. Respond ONLY in JSON: {"answer": str, "steps": [{"step": str, "explanation": str, "proof": str}], "confidence": float, "consensus": bool}',
+        "system": 'You are a synthesis agent. Combine expert opinions into one rigorous solution with proofs. NEVER write Python code, imports, or programming syntax. Use ONLY mathematical notation. Respond ONLY in JSON: {"answer": str, "steps": [{"step": str, "explanation": str, "proof": str}], "confidence": float, "consensus": bool}',
         "user": problem
     }
     return {"agents": agents, "synthesis": synthesis}

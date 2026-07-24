@@ -912,7 +912,7 @@ def three_agents(problem):
          "user": problem},
     ]
     synthesis = {
-        "system": 'You are a synthesis agent. Combine expert opinions into one rigorous solution with proofs. Respond ONLY in JSON: {"answer": str, "steps": [{"step": str, "explanation": str, "proof": str}], "confidence": float, "consensus": bool}',
+        "system": 'You are a synthesis agent. Combine expert opinions into one rigorous solution with proofs. NEVER write Python code, imports, or programming syntax. Use ONLY mathematical notation. Respond ONLY in JSON: {"answer": str, "steps": [{"step": str, "explanation": str, "proof": str}], "confidence": float, "consensus": bool}',
         "user": problem
     }
     return {"agents": agents, "synthesis": synthesis}
@@ -1040,8 +1040,12 @@ async function llmSolve(problem) {
 3. Name the theorem, rule, or property used (e.g. "Power Rule: d/dx(x^n) = n*x^(n-1)")
 4. Explain WHY this step is valid — cite the theorem as evidence
 
-DO NOT write Python code. DO NOT mention code, imports, or programming. 
-Use only mathematical language: theorems, rules, axioms, properties.
+CRITICAL RULES — violation will result in rejection:
+- NEVER write Python code, imports, or any programming syntax
+- NEVER use words like "import", "sympify", "sympy", "lambdify", "print(", "def ", "exec", "eval"
+- NEVER use function call syntax like diff(...), integrate(...), solve(...) — write math notation instead: d/dx, ∫, etc.
+- Use ONLY mathematical language: theorems, rules, axioms, properties, and standard math notation
+- "computation" must be plain math like "d/dx(x²) = 2x" NOT code like "diff(sympify('x**2'), x)"
 
 Respond ONLY in JSON:
 {"answer": "the final answer in math notation", "steps": [{"step": "what you did", "computation": "the math shown with proper notation", "theorem": "name of the theorem or rule applied", "explanation": "why this step is valid, using the theorem as evidence", "proof": "formal statement of the theorem used"}], "confidence": 0.0-1.0, "sources": ["list of theorem names referenced"]}`},
@@ -1233,7 +1237,52 @@ async function send() {
   document.getElementById("chat").scrollTop = 99999;
 }
 
+/* Strip Python/code snippets from LLM text — converts to plain math if detected */
+function stripCode(text) {
+  if (!text || typeof text !== "string") return text;
+  let s = text;
+  // Remove full Python code blocks: ```python ... ``` or ``` ... ```
+  s = s.replace(/```[\w]*\n?[\s\S]*?```/g, '');
+  // Remove inline code: `diff(...)` etc
+  s = s.replace(/`[^`]*`/g, '');
+  // Remove "import ..." lines
+  s = s.replace(/^\s*from\s+\S+\s+import\s+.*$/gim, '');
+  s = s.replace(/^\s*import\s+\S+.*$/gim, '');
+  // Remove sympy function-call patterns: sympify('...'), diff(...), integrate(...), solve(...), lambdify(...)
+  s = s.replace(/\b(sympify|lambdify)\s*\([^)]*\)/g, '');
+  s = s.replace(/\b(from sympy import \*)/g, '');
+  // Replace Python-style function calls with math notation
+  s = s.replace(/\bdiff\s*\(([^,]+),\s*([^)]+)\)/g, 'd/d$2($1)');
+  s = s.replace(/\bintegrate\s*\(([^,]+),\s*([^)]+)\)/g, '∫$1 d$2');
+  s = s.replace(/\bsolve\s*\(([^)]+)\)/g, 'solve $1');
+  s = s.replace(/\bstr\s*\(([^)]+)\)/g, '$1');
+  s = s.replace(/\bfloat\s*\(([^)]+)\)/g, '$1');
+  s = s.replace(/\bRational\s*\(([^,]+),\s*([^)]+)\)/g, '$1/$2');
+  // Remove standalone _result = ... assignments
+  s = s.replace(/^\\s*_result\s*=.*$/gim, '');
+  // Clean up leftover artifacts
+  s = s.replace(/\\n/g, '\n').replace(/\\t/g, '  ');
+  s = s.replace(/\*\*/g, '^');
+  // Remove empty parentheses left behind
+  s = s.replace(/\(\s*\)/g, '');
+  // Collapse multiple blank lines
+  s = s.replace(/\n{3,}/g, '\n\n');
+  return s.trim();
+}
+
+function cleanSolution(sol) {
+  if (sol.answer) sol.answer = stripCode(sol.answer);
+  if (sol.steps) sol.steps.forEach(s => {
+    if (s.step) s.step = stripCode(s.step);
+    if (s.computation) s.computation = stripCode(s.computation);
+    if (s.explanation) s.explanation = stripCode(s.explanation);
+    if (s.proof) s.proof = stripCode(s.proof);
+  });
+  return sol;
+}
+
 function render(sol, bubble) {
+  sol = cleanSolution(sol);
   if (sol.answer) { const a = document.createElement("div"); a.className = "ans-box"; a.innerHTML = `<div class="lb">Answer</div><div class="vl">${esc(sol.answer)}</div>`; bubble.appendChild(a); }
   if (sol.verified === true) { const v = document.createElement("div"); v.className = "verify-badge ok"; v.textContent = "✓ Double-checked with Python"; bubble.appendChild(v); }
   else if (sol.verified === false) { const v = document.createElement("div"); v.className = "verify-badge no"; v.textContent = "⚠ Python got a different answer"; if (sol.python_answer) v.textContent += ` (Python: ${esc(sol.python_answer)})`; bubble.appendChild(v); }
