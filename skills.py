@@ -166,7 +166,17 @@ def generate_code(problem):
     m = re.search(r"system\s+of\s+equations\s*[:\s]*(.+)", p)
     if m:
         eqs = m.group(1).strip()
-        return f"from sympy import *\nx, y = symbols('x y')\n_result = str(sp_solve([sympify('{eqs}')], [x, y]))"
+        # Split on commas that separate equations, then normalize each
+        parts = [e.strip() for e in eqs.split(",")]
+        eq_list = []
+        for part in parts:
+            if "=" in part and "==" not in part:
+                left, right = part.split("=", 1)
+                eq_list.append(f"Eq({norm(left.strip())}, {norm(right.strip())})")
+            else:
+                eq_list.append(norm(part))
+        eqs_str = ", ".join(eq_list)
+        return f"from sympy import *\nx, y = symbols('x y')\n_result = str(sp_solve([{eqs_str}], [x, y]))"
 
     # ── Combinations ──
     m = re.search(r"([0-9]+)\s+choose\s+([0-9]+)|c\(([0-9]+)\s*,\s*([0-9]+)\)", p)
@@ -562,12 +572,14 @@ def _line(expr_str, a, b, pts=400, roots=None, title=None):
         for r in roots:
             try:
                 r = float(r)
-                if a <= r <= b:
+                if a - 0.5 <= r <= b + 0.5:
                     y_at_root = float(f(r))
-                    ax.plot(r, y_at_root, "o", color=C_RED, markersize=10, zorder=5)
-                    ax.plot(r, y_at_root, "o", color="white", markersize=4, zorder=6)
-                    ax.annotate(f"x={r:.1f}", (r, y_at_root), textcoords="offset points",
-                                xytext=(8, 8), color=C_TEXT, fontsize=10)
+                    ax.plot(r, 0, "o", color=C_RED, markersize=12, zorder=10, markeredgecolor="white", markeredgewidth=1.5)
+                    ax.plot(r, y_at_root, "o", color=C_RED, markersize=6, zorder=10)
+                    ax.axvline(r, color=C_RED, alpha=0.2, linestyle="--", linewidth=1, zorder=4)
+                    ax.annotate(f"x={r:.1f}", (r, 0), textcoords="offset points",
+                                xytext=(0, -18), color=C_RED, fontsize=11, fontweight="bold",
+                                ha="center")
             except Exception:
                 pass
     ax.set_xlabel("x", fontsize=13, color=C_TEXT)
@@ -815,12 +827,28 @@ def memory_format(problem, answer, confidence):
 # 6. DOUBLE CHECK
 # ──────────────────────────────────────────────
 
+def compute_answer(problem):
+    """Compute the canonical answer for a problem using Python/SymPy."""
+    code = generate_code(problem)
+    if not code:
+        return None
+    try:
+        local = {"sp_solve": sp_solve, "sp_limit": sp_limit}
+        exec(code, local)
+        result = local.get("_result", "")
+        if result is None or result == "":
+            return None
+        return fmt(str(result))
+    except Exception:
+        return None
+
+
 def double_check(problem, llm_answer):
     code = generate_code(problem)
     if not code:
         return {"verified": None, "reason": "Python cannot verify this problem type"}
     try:
-        local = {}
+        local = {"sp_solve": sp_solve, "sp_limit": sp_limit}
         exec(code, local)
         py_answer = str(local.get("_result", ""))
         if not py_answer:
@@ -829,22 +857,6 @@ def double_check(problem, llm_answer):
         return {"verified": match, "python_answer": fmt(py_answer)}
     except Exception as e:
         return {"verified": False, "reason": str(e)}
-
-
-def compute_answer(problem):
-    """Compute the canonical answer for a problem using Python/SymPy."""
-    code = generate_code(problem)
-    if not code:
-        return None
-    try:
-        local = {}
-        exec(code, local)
-        result = local.get("_result", "")
-        if result is None or result == "":
-            return None
-        return fmt(str(result))
-    except Exception:
-        return None
 
 
 def _extract_numbers(s):
@@ -947,6 +959,10 @@ def three_agents(problem):
 
 def handle(problem):
     result = {"problem": problem}
+    p = problem.lower().strip()
+    is_graphable = bool(re.search(r"y\s*=\s*[0-9a-z\+\-\*\^/·×\s\(\)sincoxtan]+", p) or
+                       re.search(r"f\(x\)\s*=\s*[0-9a-z\+\-\*\^/·×\s\(\)sincoxtan]+", p))
+    
     # Try explicit graph detection first
     try:
         graph = present_graph(problem)
@@ -958,9 +974,6 @@ def handle(problem):
     else:
         # Auto-detect: if the problem contains "y =" or "f(x) =" and looks
         # like a function (not "solve" or "derivative" etc), try to graph it
-        p = problem.lower().strip()
-        is_graphable = bool(re.search(r"y\s*=\s*[0-9a-z\+\-\*\^/·×\s\(\)sincoxtan]+", p) or
-                           re.search(r"f\(x\)\s*=\s*[0-9a-z\+\-\*\^/·×\s\(\)sincoxtan]+", p))
         is_computation = any(kw in p for kw in [
             "derivative", "integral", "solve", "limit", "factorial", "choose",
             "determinant", "inverse", "transpose", "eigenvalue", "trace", "rank",
@@ -1010,22 +1023,32 @@ def handle(problem):
                     degree = poly.degree()
                     if degree >= 1 and degree <= 5:
                         # Choose window around roots if we can find them
+                        real_roots = []
                         try:
-                            roots = [complex(r) for r in poly.nroots() if abs(r.imag) < 0.01]
-                            real_roots = [float(r.real) for r in roots]
+                            roots = [complex(r) for r in poly.nroots()]
+                            real_roots = [float(r.real) for r in roots if abs(r.imag) < 0.01]
                             if real_roots:
                                 center = sum(real_roots) / len(real_roots)
                                 span = max(real_roots) - min(real_roots)
-                                a = int(round(center - max(span, 4) / 2 - 2))
-                                b = int(round(center + max(span, 4) / 2 + 2))
+                                pad = max(span * 0.3, 2)
+                                a = int(round(center - span / 2 - pad))
+                                b = int(round(center + span / 2 + pad))
                             else:
-                                a, b = -10, 10
+                                a, b = -5, 5
                         except Exception:
-                            a, b = -10, 10
-                        graph = _line(expr, a, b)
+                            a, b = -5, 5
+                        
+                        # Clean title: show original left-hand side = right-hand side if it was an equation
+                        if "=" in raw_expr:
+                            left, right = raw_expr.split("=", 1)
+                            title = f"y = {left.strip()} − {right.strip()}"
+                        else:
+                            title = f"y = {raw_expr.strip()}"
+                        
+                        graph = _line(expr, a, b, roots=real_roots, title=title)
                         if graph and "image" in graph:
                             result["graph_image"] = graph["image"]
-                            result["graph_title"] = f"y = {expr}"
+                            result["graph_title"] = title
                 except Exception:
                     pass
         except Exception:
