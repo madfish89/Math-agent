@@ -135,6 +135,15 @@ def generate_code(problem):
         val = m.group(3).strip()
         return f"from sympy import *\n{var} = symbols('{var}')\n_result = str(sp_limit(sympify('{e}'), {var}, sympify('{val}')))"
 
+    # ── Roots of equation / quadratic ──
+    m = re.search(r"roots?\s+of\s+(.+?)(?:\s*$|\.)", p)
+    if m:
+        e = norm(m.group(1).strip().rstrip("."))
+        if "=" in e and "==" not in e:
+            parts = e.split("=")
+            e = f"({parts[0]})-({parts[1]})"
+        return f"from sympy import *\nx = symbols('x')\n_result = str(solve(sympify('{e}'), x))"
+
     # ── Differential equations (check BEFORE generic solve) ──
     m = re.search(r"(?:solve\s+ode|differential\s+equation|solve\s+the\s+ode)\s*[:\s]*(.+)", p)
     if m:
@@ -144,7 +153,7 @@ def generate_code(problem):
             eq = f"Eq({parts[0]},{parts[1]})"
         return f"from sympy import *\nx = symbols('x'); y = Function('y')\n_result = str(dsolve(sympify('{eq}'), y(x)))"
 
-    # ── Solve equation ──
+    # ── Solve equation (generic) — graph it too if it contains x² or x^2 terms ──
     m = re.search(r"solve\s+(.+)", p)
     if m:
         e = norm(m.group(1).strip())
@@ -535,7 +544,7 @@ def _safe_point(f, x):
         return False
 
 
-def _line(expr_str, a, b, pts=400):
+def _line(expr_str, a, b, pts=400, roots=None, title=None):
     expr_str = _strip_y(expr_str)
     x = symbols("x")
     expr = sympify(norm(expr_str))
@@ -543,16 +552,31 @@ def _line(expr_str, a, b, pts=400):
     xs = np.linspace(a, b, pts)
     ys = _safe_eval(f, xs)
     mask = np.abs(ys) < 1e15
-    xs, ys = xs[mask], ys[mask]
+    xs_plot, ys_plot = xs[mask], ys[mask]
     fig, ax = plt.subplots(figsize=(9, 5))
-    ax.plot(xs, ys, color=C_BLUE, linewidth=2.5, label=f"y = {expr_str}")
+    ax.plot(xs_plot, ys_plot, color=C_BLUE, linewidth=2.5, label=f"y = {expr_str}")
+    ax.axhline(0, color=C_GRID, linewidth=0.8)
+    ax.axvline(0, color=C_GRID, linewidth=0.8)
+    # Mark roots (x-intercepts) with red dots and labels
+    if roots:
+        for r in roots:
+            try:
+                r = float(r)
+                if a <= r <= b:
+                    y_at_root = float(f(r))
+                    ax.plot(r, y_at_root, "o", color=C_RED, markersize=10, zorder=5)
+                    ax.plot(r, y_at_root, "o", color="white", markersize=4, zorder=6)
+                    ax.annotate(f"x={r:.1f}", (r, y_at_root), textcoords="offset points",
+                                xytext=(8, 8), color=C_TEXT, fontsize=10)
+            except Exception:
+                pass
     ax.set_xlabel("x", fontsize=13, color=C_TEXT)
     ax.set_ylabel("y", fontsize=13, color=C_TEXT)
-    ax.set_title(f"y = {expr_str}", fontsize=15, pad=12, color=C_TEXT)
+    ax.set_title(title or f"y = {expr_str}", fontsize=15, pad=12, color=C_TEXT)
     ax.legend(fontsize=12, facecolor=C_BG, edgecolor=C_GRID, labelcolor=C_TEXT)
     _style_ax(ax)
     fig.tight_layout()
-    return {"image": _fig_b64(fig), "title": f"y = {expr_str}"}
+    return {"image": _fig_b64(fig), "title": title or f"y = {expr_str}"}
 
 
 def _multi(exprs, a, b, pts=400):
@@ -807,9 +831,27 @@ def double_check(problem, llm_answer):
         return {"verified": False, "reason": str(e)}
 
 
+def compute_answer(problem):
+    """Compute the canonical answer for a problem using Python/SymPy."""
+    code = generate_code(problem)
+    if not code:
+        return None
+    try:
+        local = {}
+        exec(code, local)
+        result = local.get("_result", "")
+        if result is None or result == "":
+            return None
+        return fmt(str(result))
+    except Exception:
+        return None
+
+
 def _extract_numbers(s):
-    """Extract all numbers from a string, handling fractions, negatives, and scientific notation."""
+    """Extract all numbers from a string, handling unicode minus, fractions, negatives, and scientific notation."""
     s = str(s)
+    # Normalize unicode minus → ascii minus
+    s = s.replace(chr(0x2212), "-")
     # Handle fractions like 3/4, -1/2
     fracs = re.findall(r"-?\d+\.?\d*/\d+\.?\d*", s)
     # Handle regular numbers (including decimals and negatives)
@@ -823,6 +865,18 @@ def _extract_numbers(s):
     return result
 
 
+def _normalize_answer(s):
+    """Normalize an answer string for comparison: lowercase, strip spaces, normalize unicode minus."""
+    s = str(s)
+    s = s.replace(chr(0x2212), "-")
+    s = s.replace("=", " ")
+    s = s.replace(",", " ")
+    s = s.replace("[", " ")
+    s = s.replace("]", " ")
+    s = s.replace("·", "*")
+    return s.strip().lower().replace(" ", "")
+
+
 def _match(a, b):
     """Compare two answers by their numeric content — order-independent, with tolerance."""
     nums_a = _extract_numbers(a)
@@ -830,8 +884,8 @@ def _match(a, b):
     
     if not nums_a or not nums_b:
         # Try string comparison for symbolic answers (no numbers)
-        sa = str(a).strip().lower().replace(" ", "")
-        sb = str(b).strip().lower().replace(" ", "")
+        sa = _normalize_answer(a)
+        sb = _normalize_answer(b)
         if sa and sb and sa == sb:
             return True
         return None
@@ -847,20 +901,14 @@ def _match(a, b):
                 return False
         return True
     
-    # Case 2: Python has fewer values — check if all Python values are in LLM answer
-    # (LLM may include intermediate values, Python gives just the final answer)
-    if len(nums_b_sorted) < len(nums_a_sorted):
-        set_b = set(round(n, 4) for n in nums_b_sorted)
-        set_a = set(round(n, 4) for n in nums_a_sorted)
-        if set_b.issubset(set_a):
-            return True
-    
-    # Case 3: Python has more values — check if all LLM values are in Python answer
-    if len(nums_a_sorted) < len(nums_b_sorted):
-        set_a = set(round(n, 4) for n in nums_a_sorted)
-        set_b = set(round(n, 4) for n in nums_b_sorted)
-        if set_a.issubset(set_b):
-            return True
+    # Case 2/3: Subset matching — smaller set should be subset of larger
+    # This handles LLM giving x = -2, x = -3 and Python giving [-3, -2]
+    smaller = set(round(n, 4) for n in nums_a_sorted)
+    larger = set(round(n, 4) for n in nums_b_sorted)
+    if len(smaller) > len(larger):
+        smaller, larger = larger, smaller
+    if smaller.issubset(larger):
+        return True
     
     # Case 4: Single value comparison with tolerance
     if len(nums_a_sorted) == 1 and len(nums_b_sorted) == 1:
@@ -937,6 +985,52 @@ def handle(problem):
                         result["graph_title"] = graph.get("title", "Graph")
             except Exception:
                 pass  # Not graphable, just solve with LLM
+    # Auto-detect equations to graph (parabolas, polynomials)
+    # e.g. "solve x^2+5x+6=0" or "roots of x^2+5x+6=0" → graph the parabola with roots
+    if not is_graphable and ("solve" in p or "roots" in p or "=0" in p):
+        try:
+            # Extract the polynomial side (left of =, or remove "solve")
+            raw_expr = problem
+            if "solve" in p:
+                raw_expr = re.sub(r"^solve\s+", "", problem, flags=re.IGNORECASE)
+            elif "roots" in p:
+                raw_expr = re.sub(r"^roots?\s+of\s+", "", problem, flags=re.IGNORECASE)
+            # If it has x and looks like a polynomial/equation, convert to y = f(x)
+            if "x" in raw_expr and ("=" in raw_expr or re.search(r"x\s*\*\*|x\^|x\d", raw_expr)):
+                if "=" in raw_expr:
+                    left, right = raw_expr.split("=", 1)
+                    expr = f"({norm(left.strip())}) - ({norm(right.strip())})"
+                else:
+                    expr = norm(raw_expr.strip())
+                # Only graph if it successfully parses as a single-variable polynomial
+                try:
+                    from sympy import symbols, sympify, Poly
+                    x = symbols("x")
+                    poly = Poly(sympify(expr), x)
+                    degree = poly.degree()
+                    if degree >= 1 and degree <= 5:
+                        # Choose window around roots if we can find them
+                        try:
+                            roots = [complex(r) for r in poly.nroots() if abs(r.imag) < 0.01]
+                            real_roots = [float(r.real) for r in roots]
+                            if real_roots:
+                                center = sum(real_roots) / len(real_roots)
+                                span = max(real_roots) - min(real_roots)
+                                a = int(round(center - max(span, 4) / 2 - 2))
+                                b = int(round(center + max(span, 4) / 2 + 2))
+                            else:
+                                a, b = -10, 10
+                        except Exception:
+                            a, b = -10, 10
+                        graph = _line(expr, a, b)
+                        if graph and "image" in graph:
+                            result["graph_image"] = graph["image"]
+                            result["graph_title"] = f"y = {expr}"
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
     if "graph_image" in result:
         return json.dumps(result)
     return None
