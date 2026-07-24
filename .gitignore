@@ -1,3 +1,25 @@
 __pycache__/
 *.pyc
 .env
+# Virtual environments
+venv/
+env/
+.venv/
+
+# macOS
+.DS_Store
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+
+# Node modules (if applicable)
+node_modules/
+
+# Build artifacts
+_site/
+.jekyll-cache/
