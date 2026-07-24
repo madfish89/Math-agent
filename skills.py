@@ -799,31 +799,75 @@ def double_check(problem, llm_answer):
         local = {}
         exec(code, local)
         py_answer = str(local.get("_result", ""))
+        if not py_answer:
+            return {"verified": None, "reason": "Python produced no result"}
         match = _match(llm_answer, py_answer)
         return {"verified": match, "python_answer": fmt(py_answer)}
     except Exception as e:
         return {"verified": False, "reason": str(e)}
 
 
+def _extract_numbers(s):
+    """Extract all numbers from a string, handling fractions, negatives, and scientific notation."""
+    s = str(s)
+    # Handle fractions like 3/4, -1/2
+    fracs = re.findall(r"-?\d+\.?\d*/\d+\.?\d*", s)
+    # Handle regular numbers (including decimals and negatives)
+    nums = re.findall(r"-?\d+\.?\d*(?:e-?\d+)?", s)
+    result = []
+    for n in nums:
+        try:
+            result.append(float(n))
+        except ValueError:
+            pass
+    return result
+
+
 def _match(a, b):
-    nums_a = re.findall(r"-?[0-9]+\.?[0-9]*", str(a))
-    nums_b = re.findall(r"-?[0-9]+\.?[0-9]*", str(b))
+    """Compare two answers by their numeric content — order-independent, with tolerance."""
+    nums_a = _extract_numbers(a)
+    nums_b = _extract_numbers(b)
+    
     if not nums_a or not nums_b:
-        return None
-    if len(nums_a) != len(nums_b):
-        # Try subset matching — if Python's answer numbers are a subset of LLM's
-        set_a = set(nums_a)
-        set_b = set(nums_b)
-        if set_b.issubset(set_a):
+        # Try string comparison for symbolic answers (no numbers)
+        sa = str(a).strip().lower().replace(" ", "")
+        sb = str(b).strip().lower().replace(" ", "")
+        if sa and sb and sa == sb:
             return True
-        return False
-    try:
-        for na, nb in zip(nums_a, nums_b):
-            if abs(float(na) - float(nb)) >= 0.01:
+        return None
+    
+    # Sort both lists — order-independent comparison
+    nums_a_sorted = sorted(nums_a)
+    nums_b_sorted = sorted(nums_b)
+    
+    # Case 1: Same number of values — direct comparison
+    if len(nums_a_sorted) == len(nums_b_sorted):
+        for na, nb in zip(nums_a_sorted, nums_b_sorted):
+            if abs(na - nb) >= 0.01:
                 return False
         return True
-    except Exception:
-        return False
+    
+    # Case 2: Python has fewer values — check if all Python values are in LLM answer
+    # (LLM may include intermediate values, Python gives just the final answer)
+    if len(nums_b_sorted) < len(nums_a_sorted):
+        set_b = set(round(n, 4) for n in nums_b_sorted)
+        set_a = set(round(n, 4) for n in nums_a_sorted)
+        if set_b.issubset(set_a):
+            return True
+    
+    # Case 3: Python has more values — check if all LLM values are in Python answer
+    if len(nums_a_sorted) < len(nums_b_sorted):
+        set_a = set(round(n, 4) for n in nums_a_sorted)
+        set_b = set(round(n, 4) for n in nums_b_sorted)
+        if set_a.issubset(set_b):
+            return True
+    
+    # Case 4: Single value comparison with tolerance
+    if len(nums_a_sorted) == 1 and len(nums_b_sorted) == 1:
+        if abs(nums_a_sorted[0] - nums_b_sorted[0]) < 0.01:
+            return True
+    
+    return False
 
 
 # ──────────────────────────────────────────────

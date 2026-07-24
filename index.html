@@ -1030,31 +1030,75 @@ def double_check(problem, llm_answer):
         local = {}
         exec(code, local)
         py_answer = str(local.get("_result", ""))
+        if not py_answer:
+            return {"verified": None, "reason": "Python produced no result"}
         match = _match(llm_answer, py_answer)
         return {"verified": match, "python_answer": fmt(py_answer)}
     except Exception as e:
         return {"verified": False, "reason": str(e)}
 
 
+def _extract_numbers(s):
+    """Extract all numbers from a string, handling fractions, negatives, and scientific notation."""
+    s = str(s)
+    # Handle fractions like 3/4, -1/2
+    fracs = re.findall(r"-?\\d+\\.?\\d*/\\d+\\.?\\d*", s)
+    # Handle regular numbers (including decimals and negatives)
+    nums = re.findall(r"-?\\d+\\.?\\d*(?:e-?\\d+)?", s)
+    result = []
+    for n in nums:
+        try:
+            result.append(float(n))
+        except ValueError:
+            pass
+    return result
+
+
 def _match(a, b):
-    nums_a = re.findall(r"-?[0-9]+\\.?[0-9]*", str(a))
-    nums_b = re.findall(r"-?[0-9]+\\.?[0-9]*", str(b))
+    """Compare two answers by their numeric content — order-independent, with tolerance."""
+    nums_a = _extract_numbers(a)
+    nums_b = _extract_numbers(b)
+    
     if not nums_a or not nums_b:
-        return None
-    if len(nums_a) != len(nums_b):
-        # Try subset matching — if Python's answer numbers are a subset of LLM's
-        set_a = set(nums_a)
-        set_b = set(nums_b)
-        if set_b.issubset(set_a):
+        # Try string comparison for symbolic answers (no numbers)
+        sa = str(a).strip().lower().replace(" ", "")
+        sb = str(b).strip().lower().replace(" ", "")
+        if sa and sb and sa == sb:
             return True
-        return False
-    try:
-        for na, nb in zip(nums_a, nums_b):
-            if abs(float(na) - float(nb)) >= 0.01:
+        return None
+    
+    # Sort both lists — order-independent comparison
+    nums_a_sorted = sorted(nums_a)
+    nums_b_sorted = sorted(nums_b)
+    
+    # Case 1: Same number of values — direct comparison
+    if len(nums_a_sorted) == len(nums_b_sorted):
+        for na, nb in zip(nums_a_sorted, nums_b_sorted):
+            if abs(na - nb) >= 0.01:
                 return False
         return True
-    except Exception:
-        return False
+    
+    # Case 2: Python has fewer values — check if all Python values are in LLM answer
+    # (LLM may include intermediate values, Python gives just the final answer)
+    if len(nums_b_sorted) < len(nums_a_sorted):
+        set_b = set(round(n, 4) for n in nums_b_sorted)
+        set_a = set(round(n, 4) for n in nums_a_sorted)
+        if set_b.issubset(set_a):
+            return True
+    
+    # Case 3: Python has more values — check if all LLM values are in Python answer
+    if len(nums_a_sorted) < len(nums_b_sorted):
+        set_a = set(round(n, 4) for n in nums_a_sorted)
+        set_b = set(round(n, 4) for n in nums_b_sorted)
+        if set_a.issubset(set_b):
+            return True
+    
+    # Case 4: Single value comparison with tolerance
+    if len(nums_a_sorted) == 1 and len(nums_b_sorted) == 1:
+        if abs(nums_a_sorted[0] - nums_b_sorted[0]) < 0.01:
+            return True
+    
+    return False
 
 
 # ──────────────────────────────────────────────
@@ -1207,48 +1251,99 @@ async function callLLM(messages) {
   return (await res.json()).choices[0].message.content;
 }
 
-async function llmSolve(problem) {
+async function llmSolve(problem, pythonAnswer) {
+  const pyHint = pythonAnswer ? `\n\nPython (SymPy) independently computed the answer as: ${pythonAnswer}\nUse this as a reference — your final answer MUST match this.\n` : "";
   const raw = await callLLM([
-    {role:"system", content:`You are a mathematics professor. Solve the problem using formal mathematical reasoning. For EACH step:
-1. State the mathematical operation being performed (e.g. "Apply the Power Rule")
-2. Show the computation with proper notation
-3. Name the theorem, rule, or property used (e.g. "Power Rule: d/dx(x^n) = n*x^(n-1)")
-4. Explain WHY this step is valid — cite the theorem as evidence
+    {role:"system", content:`You are a friendly, patient math tutor. Solve the problem step by step in PLAIN ENGLISH.
 
-CRITICAL RULES — violation will result in rejection:
-- NEVER write Python code, imports, or any programming syntax
-- NEVER use words like "import", "sympify", "sympy", "lambdify", "print(", "def ", "exec", "eval"
-- NEVER use function call syntax like diff(...), integrate(...), solve(...) — write math notation instead: d/dx, ∫, etc.
-- Use ONLY mathematical language: theorems, rules, axioms, properties, and standard math notation
-- "computation" must be plain math like "d/dx(x²) = 2x" NOT code like "diff(sympify('x**2'), x)"
+For EACH step, you must provide:
+- "step": A short title for what you're doing (e.g. "Apply the Power Rule")
+- "computation": The actual math, written clearly (e.g. "d/dx(x²) = 2x")
+- "explanation": A PLAIN ENGLISH explanation of WHY this works and HOW the math operates, as if explaining to a student. Use simple, conversational language. Do NOT cite theorem names or use formal proof language — just explain the intuition in everyday words.
 
-Respond ONLY in JSON:
-{"answer": "the final answer in math notation", "steps": [{"step": "what you did", "computation": "the math shown with proper notation", "theorem": "name of the theorem or rule applied", "explanation": "why this step is valid, using the theorem as evidence", "proof": "formal statement of the theorem used"}], "confidence": 0.0-1.0, "sources": ["list of theorem names referenced"]}`},
+Example of a GOOD explanation: "When we take the derivative of x squared, the power rule tells us to bring the exponent down to the front and reduce it by one. So 2 comes down, and the exponent becomes 1, giving us 2x."
+Example of a BAD explanation: "By the Power Rule theorem (d/dx(x^n) = nx^(n-1)), we differentiate."
+
+CRITICAL RULES:
+- Write ALL explanations in plain, conversational English — like a teacher explaining to a student
+- NEVER write Python code, imports, or programming syntax
+- NEVER use words like "import", "sympify", "sympy", "lambdify", "print(", "def "
+- Use standard math notation: d/dx, ∫, √, π, etc.
+- The "proof" field should be a simple one-sentence summary of the rule used, in plain English
+
+Respond ONLY with valid JSON (no markdown, no code blocks, no text before or after):
+{"answer": "the final answer", "steps": [{"step": "short title", "computation": "the math", "explanation": "plain English explanation of how and why this works", "proof": "one-sentence rule summary"}], "confidence": 0.0-1.0, "sources": []}` + pyHint},
     {role:"user", content: problem}
   ]);
-  try { return JSON.parse(raw.slice(raw.indexOf("{"), raw.lastIndexOf("}")+1)); }
-  catch(e) { return {answer: raw, steps: [], confidence: 0.5}; }
+  return parseLLMResponse(raw);
 }
 
-async function multiAgentSolve(problem) {
+/* Robust JSON extraction from LLM response — tries multiple strategies */
+function parseLLMResponse(raw) {
+  if (!raw || typeof raw !== 'string') return {answer: String(raw||""), steps: [], confidence: 0.5};
+  let text = raw.trim();
+  
+  // Strategy 1: Strip markdown code blocks (```json ... ``` or ``` ... ```)
+  let cleaned = text.replace(/```(?:json)?\s*/gi, '').replace(/```\s*/g, '').trim();
+  
+  // Strategy 2: Try direct JSON parse on cleaned text
+  try { return JSON.parse(cleaned); } catch(e) {}
+  
+  // Strategy 3: Extract from first { to last }
+  try {
+    const start = cleaned.indexOf("{");
+    const end = cleaned.lastIndexOf("}");
+    if (start >= 0 && end > start) {
+      return JSON.parse(cleaned.slice(start, end + 1));
+    }
+  } catch(e) {}
+  
+  // Strategy 4: Try original text with markdown
+  try {
+    const start = text.indexOf("{");
+    const end = text.lastIndexOf("}");
+    if (start >= 0 && end > start) {
+      return JSON.parse(text.slice(start, end + 1));
+    }
+  } catch(e) {}
+  
+  // Strategy 5: Fix common JSON issues — trailing commas, smart quotes
+  try {
+    let fixed = cleaned
+      .replace(/[\u201c\u201d]/g, '"')  // Smart quotes
+      .replace(/[\u2018\u2019]/g, "'")  // Smart single quotes
+      .replace(/,\s*}/g, '}')           // Trailing comma before }
+      .replace(/,\s*]/g, ']');          // Trailing comma before ]
+    const start = fixed.indexOf("{");
+    const end = fixed.lastIndexOf("}");
+    if (start >= 0 && end > start) {
+      return JSON.parse(fixed.slice(start, end + 1));
+    }
+  } catch(e) {}
+  
+  // Fallback: return raw text as answer with no steps
+  console.warn("Could not parse LLM JSON response. Raw:", text.slice(0, 200));
+  return {answer: text.replace(/```/g, '').trim(), steps: [], confidence: 0.5};
+}
+
+async function multiAgentSolve(problem, pythonAnswer) {
   await initPy();
   const agentData = await py.runPythonAsync(`import skills, json; json.dumps(skills.three_agents(${JSON.stringify(problem)}))`);
   const data = JSON.parse(agentData);
+  const pyHint = pythonAnswer ? `\n\nPython (SymPy) computed the answer as: ${pythonAnswer}. Use this as reference.` : "";
   // Run all 3 agents in PARALLEL with Promise.all
   const agentPromises = data.agents.map(a =>
-    callLLM([{role:"system", content:a.system}, {role:"user", content:a.user}])
+    callLLM([{role:"system", content:a.system}, {role:"user", content:a.user + pyHint}])
       .then(raw => {
-        try { return [a.name, JSON.parse(raw.slice(raw.indexOf("{"), raw.lastIndexOf("}")+1))]; }
+        try { return [a.name, parseLLMResponse(raw)]; }
         catch(e) { return [a.name, {raw}]; }
       })
       .catch(err => [a.name, {error: err.message}])
   );
   const results = await Promise.all(agentPromises);
   const responses = Object.fromEntries(results);
-  const synRaw = await callLLM([{role:"system", content: data.synthesis.system}, {role:"user", content: `Problem: ${problem}\nAgent responses: ${JSON.stringify(responses)}\n\nCreate a unified solution.`}]);
-  let sol;
-  try { sol = JSON.parse(synRaw.slice(synRaw.indexOf("{"), synRaw.lastIndexOf("}")+1)); }
-  catch(e) { sol = {answer: synRaw, steps: [], confidence: 0.5}; }
+  const synRaw = await callLLM([{role:"system", content: data.synthesis.system}, {role:"user", content: `Problem: ${problem}\nPython reference answer: ${pythonAnswer || "N/A"}\nAgent responses: ${JSON.stringify(responses)}\n\nCreate a unified solution with plain English step-by-step explanations.`}]);
+  let sol = parseLLMResponse(synRaw);
   sol.agents = responses;
   return sol;
 }
@@ -1384,30 +1479,73 @@ async function send() {
 
   try {
     setLoadingStep(ld, 0);
-    /* Kick off Python graph generation in parallel with the LLM solve */
-    const graphKeywords = ['graph', 'histogram', 'scatter', 'contour', '3d', 'surface', 'plot'];
+    /* ── NEW FLOW: Python computes FIRST, then LLM explains ── */
+    
+    // Step 1: Kick off Python graph generation in parallel
+    const graphKeywords = ['graph', 'histogram', 'scatter', 'contour', '3d', 'surface', 'plot', 'pie'];
     const needsGraph = graphKeywords.some(kw => problem.toLowerCase().includes(kw));
     const pyPromise = callPython(problem);
-    const sol = multiAgent ? await multiAgentSolve(problem) : await llmSolve(problem);
+    
+    // Step 2: Ask Python to compute the answer FIRST (for verification + LLM hint)
+    let pythonAnswer = null;
+    try {
+      const checkRaw = await py.runPythonAsync(`import skills, json; json.dumps(skills.double_check(${JSON.stringify(problem)}, ""))`);
+      const check = JSON.parse(checkRaw);
+      if (check.python_answer) pythonAnswer = check.python_answer;
+    } catch(e) { /* Python can't compute this — LLM will work alone */ }
+    
+    // Step 3: Ask LLM to solve WITH the Python answer as a reference
+    const sol = multiAgent ? await multiAgentSolve(problem, pythonAnswer) : await llmSolve(problem, pythonAnswer);
     setLoadingStep(ld, 1);
-    /* Always await the Python graph result (even if LLM answer arrived first) */
+    
+    // Step 4: Get graph result
     const pyResult = await pyPromise;
     if (pyResult && pyResult.graph_image) { sol.graph_image = pyResult.graph_image; sol.graph_title = pyResult.graph_title; }
     else if (needsGraph && !(pyResult && pyResult.graph_image)) {
       sol.graph_error = true;
     }
+    
+    // Step 5: Verify — compare LLM answer with Python answer
     if (sol.answer) {
       setLoadingStep(ld, 2);
       try {
-        const checkRaw = await py.runPythonAsync(`import skills, json; json.dumps(skills.double_check(${JSON.stringify(problem)}, ${JSON.stringify(sol.answer)}))`);
-        const check = JSON.parse(checkRaw);
-        sol.verified = check.verified; sol.python_answer = check.python_answer;
+        if (pythonAnswer) {
+          // We already have Python's answer — compare now
+          const verifyRaw = await py.runPythonAsync(`import skills, json; json.dumps(skills.double_check(${JSON.stringify(problem)}, ${JSON.stringify(sol.answer)}))`);
+          const verify = JSON.parse(verifyRaw);
+          sol.verified = verify.verified;
+          sol.python_answer = verify.python_answer;
+          
+          // BOOST CONFIDENCE if Python agrees
+          if (verify.verified === true) {
+            const oldConf = sol.confidence || 0.5;
+            sol.confidence = Math.min(0.99, Math.max(oldConf, 0.85) + 0.1);
+            sol.confidence_note = "Verified by Python (SymPy)";
+          } else if (verify.verified === false) {
+            // Python disagrees — lower confidence, show Python's answer
+            sol.confidence = Math.min(sol.confidence || 0.5, 0.4);
+            sol.confidence_note = "Python got a different answer — see below";
+          }
+        } else {
+          // Python couldn't compute this problem type — try fresh
+          const verifyRaw = await py.runPythonAsync(`import skills, json; json.dumps(skills.double_check(${JSON.stringify(problem)}, ${JSON.stringify(sol.answer)}))`);
+          const verify = JSON.parse(verifyRaw);
+          sol.verified = verify.verified;
+          sol.python_answer = verify.python_answer;
+          if (verify.verified === true) {
+            sol.confidence = Math.min(0.99, Math.max(sol.confidence || 0.5, 0.85));
+            sol.confidence_note = "Verified by Python (SymPy)";
+          }
+        }
       } catch(e) { sol.verified = null; }
     }
+    
+    // Step 6: Wikipedia lookup for theorem references
     if (sol.steps && sol.steps.length > 0 && sol.steps[0].proof) {
       const theorem = sol.steps[0].proof.split(":")[0].split("—")[0].trim();
-      if (theorem.length > 3) { const wiki = await searchWeb(theorem); if (wiki) sol.source = wiki; }
+      if (theorem.length > 5 && theorem.length < 60) { const wiki = await searchWeb(theorem); if (wiki) sol.source = wiki; }
     }
+    
     setLoadingStep(ld, 3);
     ld.remove(); render(sol, bubble);
     const mem = loadMem(); mem.push({problem, answer: sol.answer, confidence: sol.confidence, ts: Date.now()}); saveMem(mem);
@@ -1471,8 +1609,8 @@ function render(sol, bubble) {
     copyBtn.onclick = () => { navigator.clipboard.writeText(sol.answer).then(() => { copyBtn.textContent = "✓ Copied!"; setTimeout(() => copyBtn.textContent = "📋 Copy answer", 2000); }); };
     bubble.appendChild(copyBtn);
   }
-  if (sol.verified === true) { const v = document.createElement("div"); v.className = "verify-badge ok"; v.textContent = "✓ Double-checked with Python"; bubble.appendChild(v); }
-  else if (sol.verified === false) { const v = document.createElement("div"); v.className = "verify-badge no"; v.textContent = "⚠ Python got a different answer"; if (sol.python_answer) v.textContent += ` (Python: ${esc(sol.python_answer)})`; bubble.appendChild(v); }
+  if (sol.verified === true) { const v = document.createElement("div"); v.className = "verify-badge ok"; v.textContent = "✓ Verified by Python (SymPy) — answers match"; bubble.appendChild(v); }
+  else if (sol.verified === false) { const v = document.createElement("div"); v.className = "verify-badge no"; v.textContent = "⚠ Python got a different answer"; if (sol.python_answer) v.textContent += ` — Python says: ${esc(sol.python_answer)}`; bubble.appendChild(v); }
   else if (sol.verified === null || sol.verified === undefined) { const v = document.createElement("div"); v.className = "verify-badge warn"; v.textContent = "Python could not verify this problem type"; bubble.appendChild(v); }
   if (sol.steps && sol.steps.length) { const t = document.createElement("div"); t.className = "steps-title"; t.textContent = "Solution"; bubble.appendChild(t); sol.steps.forEach((s, i) => {
     const e = document.createElement("div"); e.className = "step-it";
@@ -1492,6 +1630,7 @@ function render(sol, bubble) {
   const b = document.createElement("div"); b.className = "conf-bar";
   b.innerHTML = `<span style="font-size:13px;color:var(--dim)">Confidence</span><div class="conf-trk"><div class="conf-fill ${cls}" style="width:${pct}%"></div></div><span class="conf-lb">${pct}% — ${lb}</span>`;
   bubble.appendChild(b);
+  if (sol.confidence_note) { const n = document.createElement("div"); n.style.cssText = "font-size:12px;color:var(--dim);margin-top:4px;font-style:italic"; n.textContent = sol.confidence_note; bubble.appendChild(n); }
   if (sol.graph_image) { const g = document.createElement("div"); g.className = "graph-container"; g.innerHTML = `<img src="${sol.graph_image}" alt="${sol.graph_title || 'Graph'}">`; bubble.appendChild(g); }
   if (sol.graph_error) { const g = document.createElement("div"); g.className = "graph-container"; g.style.padding = "16px"; g.style.textAlign = "center"; g.style.color = "var(--warn)"; g.textContent = "Could not generate graph — try simplifying the expression"; bubble.appendChild(g); }
   if (sol.source) { const s = document.createElement("div"); s.className = "src-card"; s.innerHTML = `<div class="sn">Wikipedia</div><div style="font-size:14px;margin-top:4px">${esc(sol.source.title)}</div><div style="font-size:13px;color:var(--dim);margin-top:4px">${esc(sol.source.extract)}...</div><a href="${sol.source.url}" target="_blank">🔗 ${esc(sol.source.url)}</a>`; bubble.appendChild(s); }
