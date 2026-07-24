@@ -924,10 +924,40 @@ def three_agents(problem):
 
 def handle(problem):
     result = {"problem": problem}
+    # Try explicit graph detection first
     graph = present_graph(problem)
     if graph:
         result["graph_image"] = graph["image"]
         result["graph_title"] = graph.get("title", "Graph")
+    else:
+        # Auto-detect: if the problem contains "y =" or "f(x) =" and looks
+        # like a function (not "solve" or "derivative" etc), try to graph it
+        p = problem.lower().strip()
+        is_graphable = bool(re.search(r"y\\s*=\\s*[0-9a-z\\+\\-\\*\\^/·×\\s\\(\\)sincoxtan]+", p) or
+                           re.search(r"f\\(x\\)\\s*=\\s*[0-9a-z\\+\\-\\*\\^/·×\\s\\(\\)sincoxtan]+", p))
+        is_computation = any(kw in p for kw in [
+            "derivative", "integral", "solve", "limit", "factorial", "choose",
+            "determinant", "inverse", "transpose", "eigenvalue", "trace", "rank",
+            "taylor", "ode", "differential", "mean of", "median of", "std of",
+            "variance of", "mode of", "permutation", "simplify", "expand",
+            "factor ", "gcd", "lcm", "prime", "sum of", "log base",
+        ])
+        if is_graphable and not is_computation:
+            try:
+                # Extract the expression after y = or f(x) =
+                m = re.search(r"y\\s*=\\s*(.+?)(?:\\s+from\\s+(-?[0-9]+)\\s+to\\s+(-?[0-9]+))?\\s*$", p)
+                if not m:
+                    m = re.search(r"f\\(x\\)\\s*=\\s*(.+?)(?:\\s+from\\s+(-?[0-9]+)\\s+to\\s+(-?[0-9]+))?\\s*$", p)
+                if m:
+                    expr = m.group(1).strip().rstrip(".")
+                    a = int(m.group(2)) if m.group(2) else -10
+                    b = int(m.group(3)) if m.group(3) else 10
+                    graph = _line(expr, a, b)
+                    if graph and "image" in graph:
+                        result["graph_image"] = graph["image"]
+                        result["graph_title"] = graph.get("title", "Graph")
+            except Exception:
+                pass  # Not graphable, just solve with LLM
     if "graph_image" in result:
         return json.dumps(result)
     return None`;
@@ -1004,7 +1034,17 @@ async function callLLM(messages) {
 
 async function llmSolve(problem) {
   const raw = await callLLM([
-    {role:"system", content:'You are a math expert. Solve with step-by-step reasoning and a proof for each step. Respond ONLY in JSON: {"answer": str, "steps": [{"step": str, "explanation": str, "proof": str}], "confidence": float}'},
+    {role:"system", content:`You are a mathematics professor. Solve the problem using formal mathematical reasoning. For EACH step:
+1. State the mathematical operation being performed (e.g. "Apply the Power Rule")
+2. Show the computation with proper notation
+3. Name the theorem, rule, or property used (e.g. "Power Rule: d/dx(x^n) = n*x^(n-1)")
+4. Explain WHY this step is valid — cite the theorem as evidence
+
+DO NOT write Python code. DO NOT mention code, imports, or programming. 
+Use only mathematical language: theorems, rules, axioms, properties.
+
+Respond ONLY in JSON:
+{"answer": "the final answer in math notation", "steps": [{"step": "what you did", "computation": "the math shown with proper notation", "theorem": "name of the theorem or rule applied", "explanation": "why this step is valid, using the theorem as evidence", "proof": "formal statement of the theorem used"}], "confidence": 0.0-1.0, "sources": ["list of theorem names referenced"]}`},
     {role:"user", content: problem}
   ]);
   try { return JSON.parse(raw.slice(raw.indexOf("{"), raw.lastIndexOf("}")+1)); }
@@ -1198,12 +1238,14 @@ function render(sol, bubble) {
   if (sol.verified === true) { const v = document.createElement("div"); v.className = "verify-badge ok"; v.textContent = "✓ Double-checked with Python"; bubble.appendChild(v); }
   else if (sol.verified === false) { const v = document.createElement("div"); v.className = "verify-badge no"; v.textContent = "⚠ Python got a different answer"; if (sol.python_answer) v.textContent += ` (Python: ${esc(sol.python_answer)})`; bubble.appendChild(v); }
   else if (sol.verified === null || sol.verified === undefined) { const v = document.createElement("div"); v.className = "verify-badge warn"; v.textContent = "Python could not verify this problem type"; bubble.appendChild(v); }
-  if (sol.steps && sol.steps.length) { const t = document.createElement("div"); t.className = "steps-title"; t.textContent = "Steps"; bubble.appendChild(t); sol.steps.forEach((s, i) => {
+  if (sol.steps && sol.steps.length) { const t = document.createElement("div"); t.className = "steps-title"; t.textContent = "Solution"; bubble.appendChild(t); sol.steps.forEach((s, i) => {
     const e = document.createElement("div"); e.className = "step-it";
-    let inner = `<div class="sn">Step ${i+1}</div><div class="sc">${esc(s.step||"")}</div>`;
+    let inner = `<div class="sn">Step ${i+1}${s.theorem ? ' — ' + esc(s.theorem) : ''}</div>`;
+    if (s.step) inner += `<div class="sc">${esc(s.step)}</div>`;
+    if (s.computation) inner += `<div class="sc" style="color:var(--green);font-family:'SF Mono',monospace;font-size:14px">${esc(s.computation)}</div>`;
     if (s.explanation) inner += `<div class="se">${esc(s.explanation)}</div>`;
     if (s.proof) {
-      inner += `<div class="sp proof-callout collapsed" onclick="this.classList.toggle('collapsed')"><span>📐 Proof</span><span class="proof-toggle">[click to expand]</span><div class="proof-content" style="margin-top:6px">${esc(s.proof)}</div></div>`;
+      inner += `<div class="sp proof-callout collapsed" onclick="this.classList.toggle('collapsed')"><span>📐 Theorem</span><span class="proof-toggle">[click to expand]</span><div class="proof-content" style="margin-top:6px">${esc(s.proof)}</div></div>`;
     }
     e.innerHTML = inner; bubble.appendChild(e);
   }); }

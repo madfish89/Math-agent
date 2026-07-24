@@ -700,10 +700,40 @@ def three_agents(problem):
 
 def handle(problem):
     result = {"problem": problem}
+    # Try explicit graph detection first
     graph = present_graph(problem)
     if graph:
         result["graph_image"] = graph["image"]
         result["graph_title"] = graph.get("title", "Graph")
+    else:
+        # Auto-detect: if the problem contains "y =" or "f(x) =" and looks
+        # like a function (not "solve" or "derivative" etc), try to graph it
+        p = problem.lower().strip()
+        is_graphable = bool(re.search(r"y\s*=\s*[0-9a-z\+\-\*\^/·×\s\(\)sincoxtan]+", p) or
+                           re.search(r"f\(x\)\s*=\s*[0-9a-z\+\-\*\^/·×\s\(\)sincoxtan]+", p))
+        is_computation = any(kw in p for kw in [
+            "derivative", "integral", "solve", "limit", "factorial", "choose",
+            "determinant", "inverse", "transpose", "eigenvalue", "trace", "rank",
+            "taylor", "ode", "differential", "mean of", "median of", "std of",
+            "variance of", "mode of", "permutation", "simplify", "expand",
+            "factor ", "gcd", "lcm", "prime", "sum of", "log base",
+        ])
+        if is_graphable and not is_computation:
+            try:
+                # Extract the expression after y = or f(x) =
+                m = re.search(r"y\s*=\s*(.+?)(?:\s+from\s+(-?[0-9]+)\s+to\s+(-?[0-9]+))?\s*$", p)
+                if not m:
+                    m = re.search(r"f\(x\)\s*=\s*(.+?)(?:\s+from\s+(-?[0-9]+)\s+to\s+(-?[0-9]+))?\s*$", p)
+                if m:
+                    expr = m.group(1).strip().rstrip(".")
+                    a = int(m.group(2)) if m.group(2) else -10
+                    b = int(m.group(3)) if m.group(3) else 10
+                    graph = _line(expr, a, b)
+                    if graph and "image" in graph:
+                        result["graph_image"] = graph["image"]
+                        result["graph_title"] = graph.get("title", "Graph")
+            except Exception:
+                pass  # Not graphable, just solve with LLM
     if "graph_image" in result:
         return json.dumps(result)
     return None
